@@ -1,9 +1,9 @@
 # Remo
 
-[![Stars](https://img.shields.io/github/stars/Ryan-99/remo-windows?style=flat&logo=github&label=stars)](https://github.com/Ryan-99/remo-windows/stargazers)
+[![Stars](https://img.shields.io/github/stars/Ryan-99/remo-windows?style=flat&color=blue)](https://github.com/Ryan-99/remo-windows/stargazers)
 [![Commit Activity](https://img.shields.io/github/commit-activity/m/Ryan-99/remo-windows?style=flat&label=commit%20activity)](https://github.com/Ryan-99/remo-windows/graphs/commit-activity)
 [![Contributors](https://img.shields.io/github/contributors/Ryan-99/remo-windows?style=flat&label=contributors&color=yellow)](https://github.com/Ryan-99/remo-windows/graphs/contributors)
-[![License](https://img.shields.io/github/license/Ryan-99/remo-windows?style=flat&label=license&color=brightgreen)](LICENSE.md)
+[![License](https://img.shields.io/github/license/Ryan-99/remo-windows?style=flat&color=brightgreen)](LICENSE.md)
 
 官网：[remo.echoly.cn](https://remo.echoly.cn)
 
