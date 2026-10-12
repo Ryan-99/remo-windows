@@ -1,5 +1,12 @@
 # Remo
 
+[![Stars](https://img.shields.io/github/stars/Ryan-99/remo-windows?style=flat&logo=github&label=stars)](https://github.com/Ryan-99/remo-windows/stargazers)
+[![Commit Activity](https://img.shields.io/github/commit-activity/m/Ryan-99/remo-windows?style=flat&label=commit%20activity)](https://github.com/Ryan-99/remo-windows/graphs/commit-activity)
+[![Contributors](https://img.shields.io/github/contributors/Ryan-99/remo-windows?style=flat&label=contributors&color=yellow)](https://github.com/Ryan-99/remo-windows/graphs/contributors)
+[![License](https://img.shields.io/github/license/Ryan-99/remo-windows?style=flat&label=license&color=brightgreen)](LICENSE.md)
+
+官网：[remo.echoly.cn](https://remo.echoly.cn)
+
 Remo 把小米蓝牙遥控器 2 Pro（RC003）变成 Windows 上的键盘和麦克风。方向键、确定、返回和音量可以照常使用，按住麦克风键就能对着微信输入法、豆包等说话。
 
 设置只保存在这台电脑上。关掉设置窗口不会停止按键；不想再由 Remo 映射时，在连接页点「停止接管」。
@@ -27,7 +34,7 @@ Remo 把小米蓝牙遥控器 2 Pro（RC003）变成 Windows 上的键盘和麦�
 
 ## 界面
 
-窗口是浅色的。背景 `#f6f8fb`，卡片接近白色，圆角大约 21，文字用微软雅黑。左侧是 112 宽的导航，当前页用浅蓝底。蓝色 `#087cff` 只标当前页和主要按钮，绿色只表示已经连上或检查通过。
+左边一列导航，点一下就换页。页面是浅色卡片，当前在哪一页、遥控器有没有连上，看颜色就能分出来。
 
 四个页面：
 
