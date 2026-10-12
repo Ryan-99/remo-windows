@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod actions;
 mod atvv;
 mod ble_hid;
@@ -445,23 +447,32 @@ fn hold_voice(
     held: bool,
 ) {
     let state = if held { "held" } else { "released" };
-    let result = if let Some(hub) = hub {
-        match hub.set_mic(held) {
+    let (result, ime, chord) = if let Some(hub) = hub {
+        let result = match hub.set_mic(held) {
             Ok("sendinput") => executor
                 .set_voice_held(held)
                 .map(|()| "sendinput".to_string()),
             Ok(backend) => Ok(backend.to_string()),
             Err(error) => Err(error),
-        }
+        };
+        (
+            result,
+            hub.last_ime().to_string(),
+            hub.last_chord().to_string(),
+        )
     } else {
-        executor
-            .set_voice_held(held)
-            .map(|()| "sendinput".to_string())
+        (
+            executor
+                .set_voice_held(held)
+                .map(|()| "sendinput".to_string()),
+            String::new(),
+            String::new(),
+        )
     };
     match result {
         Ok(backend) => {
             status.note_action("voice", state, "");
-            journal.emit(serde_json::json!({"protocol":"remo.v1","type":"voice_shortcut","timestamp_ms":unix_ms(),"state":state,"backend":backend}));
+            journal.emit(serde_json::json!({"protocol":"remo.v1","type":"voice_shortcut","timestamp_ms":unix_ms(),"state":state,"backend":backend,"ime":ime,"chord":chord}));
         }
         Err(error) => status.note_action("voice", "failed", &error),
     }
@@ -632,6 +643,7 @@ fn main() -> io::Result<()> {
     let voice_endpoint = user.output_endpoint_name.clone();
     let voice_gain = user.gain_db;
     let mut voice_hotkey = user.voice_hotkey.clone();
+    let mut voice_preset = user.voice_preset.clone();
     let mut config_stamp = user_config::config_stamp();
     let mut executor = create_executor(execute, user.voice_hotkey);
     let mut engine = GestureEngine::new(Duration::from_millis(500), Duration::from_millis(280));
@@ -670,6 +682,7 @@ fn main() -> io::Result<()> {
             &voice_backend,
             &voice_mode,
             &voice_hotkey,
+            &voice_preset,
             &voice_sustain,
             voice_endpoint,
             voice_gain,
@@ -860,10 +873,11 @@ fn main() -> io::Result<()> {
             let next_config = user_config::config_stamp();
             if next_config != config_stamp {
                 let loaded = user_config::load();
-                if loaded.voice_hotkey != voice_hotkey {
+                if loaded.voice_hotkey != voice_hotkey || loaded.voice_preset != voice_preset {
                     voice_hotkey = loaded.voice_hotkey;
+                    voice_preset = loaded.voice_preset;
                     if let Some(hub) = voice_hub.as_mut() {
-                        hub.set_chord(&voice_hotkey);
+                        hub.set_route(&voice_hotkey, &voice_preset);
                     }
                     journal.emit(serde_json::json!({
                         "protocol": "remo.v1",

@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["remo-core", "remo-daemon"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

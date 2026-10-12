@@ -400,7 +400,7 @@ class SettingsControllerTests(unittest.TestCase):
     def test_voice_input_presets_persist_their_chord_mode_and_identity(self):
         controller, _ = self._make_controller()
         self.assertTrue(controller.applyVoicePreset("wechat"))
-        self.assertEqual(controller.hotkeyText, "rctrl+space")
+        self.assertEqual(controller.hotkeyText, "lalt+lwin")
         self.assertEqual(
             controller.triggerModeIndex,
             controller._TRIGGER_MODE_ORDER.index(key_mapping.VoiceTriggerMode.HOLD),
@@ -408,10 +408,14 @@ class SettingsControllerTests(unittest.TestCase):
         self.assertEqual(controller.voicePresetId, "wechat")
 
         stored = config.load_config(config.config_path(controller._config_root))
-        self.assertEqual(stored["voice_hotkey"], "rctrl+space")
+        self.assertEqual(stored["voice_hotkey"], "lalt+lwin")
         self.assertEqual(stored["voice_hold_hotkey"], "")
         self.assertEqual(stored["voice_trigger_mode"], "hold")
         self.assertEqual(stored["voice_input_preset"], "wechat")
+        self.assertTrue(controller.applyVoicePreset("qianwen_ralt"))
+        self.assertEqual(controller.hotkeyText, "rctrl")
+        self.assertTrue(controller.applyVoicePreset("bage"))
+        self.assertEqual(controller.hotkeyText, "lalt")
 
     def test_manual_hotkey_edit_leaves_preset_mode_and_becomes_custom(self):
         controller, _ = self._make_controller()

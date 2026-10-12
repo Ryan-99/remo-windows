@@ -143,6 +143,9 @@ def default_config() -> Dict[str, Any]:
         "esp32_start_timeout": 5.0,
         # Keepalive period; 0 disables the host-side PING.
         "esp32_ping_interval": 10.0,
+        # Login startup is opt-in. The permissions page is the only switch,
+        # and a missing value stays off.
+        "launch_at_login": False,
     }
 
 
@@ -187,7 +190,23 @@ def load_config(path: Path) -> Dict[str, Any]:
         "auto", "winuhid", "sendinput"
     }:
         config["voice_output_backend"] = "auto"
+    config["launch_at_login"] = config.get("launch_at_login") is True
     return config
+
+
+def store_launch_at_login(root: Path, enabled: bool) -> None:
+    """Write only the login switch. Other settings stay as they are on disk."""
+
+    path = config_path(root)
+    stored: Dict[str, Any] = {}
+    if path.is_file():
+        with path.open("r", encoding="utf-8-sig") as handle:
+            loaded = json.load(handle)
+        if isinstance(loaded, dict):
+            _assert_no_forbidden_keys(loaded)
+            stored = loaded
+    stored["launch_at_login"] = bool(enabled)
+    _save_json_atomic(path, stored)
 
 
 def save_config(path: Path, config: Dict[str, Any]) -> None:
@@ -213,13 +232,13 @@ def _normalize_voice_hotkey(config: Dict[str, Any]) -> None:
     from . import key_mapping
 
     hold_presets = {
-        "wechat": "rctrl+space",
+        "wechat": "lalt+lwin",
         "doubao": "ralt",
-        "qianwen_ralt": "ralt",
-        "qianwen_win_alt": "ralt",
+        "qianwen_ralt": "rctrl",
+        "qianwen_win_alt": "rctrl",
         "bage": "lalt",
         "doubao_hands_free": "ralt",
-        "qianwen_ctrl_win": "ralt",
+        "qianwen_ctrl_win": "rctrl",
     }
     preset = str(config.get("voice_input_preset") or "")
     if preset in hold_presets:

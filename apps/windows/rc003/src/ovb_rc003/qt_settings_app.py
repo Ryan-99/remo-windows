@@ -116,6 +116,7 @@ from . import (
     hotkey,
     hotkey_capture_windows,
     key_mapping,
+    login_autostart,
     logging_setup,
     remote_layout,
     raw_input_windows,
@@ -687,6 +688,7 @@ def _load_qt_classes() -> dict:
         hotkeyCaptureError = Signal(str)
         _hotkeyCaptureResult = Signal(str)
         voicePresetChanged = Signal()
+        launchAtLoginChanged = Signal()
         takeoverRunningChanged = Signal()
         physicalButtonActivated = Signal(str)
         physicalButtonFeedbackChanged = Signal(bool)
@@ -730,6 +732,7 @@ def _load_qt_classes() -> dict:
                 "wechat", "doubao", "qianwen_ralt", "bage", "custom",
             } else "custom"
             self._takeover_running = False
+            self._launch_at_login = login_autostart.is_enabled()
 
             saved_input_source = str(
                 self._config.get("input_source", config.INPUT_SOURCE_WINDOWS_HID)
@@ -1085,7 +1088,7 @@ def _load_qt_classes() -> dict:
                 self._trigger_mode_index = value
                 trigger_mode = self._TRIGGER_MODE_ORDER[value]
                 if self._voice_preset_id == "wechat":
-                    self._hotkey_text = "rctrl+space" if trigger_mode == key_mapping.VoiceTriggerMode.HOLD else "lctrl+win"
+                    self._hotkey_text = "lalt+lwin" if trigger_mode == key_mapping.VoiceTriggerMode.HOLD else "lctrl+win"
                     self.hotkeyTextChanged.emit()
                 else:
                     self._set_hotkey_text(settings_ui.voice_hotkey_for_trigger_mode(trigger_mode))
@@ -1120,9 +1123,9 @@ def _load_qt_classes() -> dict:
         def applyVoicePreset(self, preset_id: str) -> bool:
             """Apply and persist a reference-project IME voice preset."""
             presets = {
-                "wechat": ("rctrl+space", key_mapping.VoiceTriggerMode.HOLD, ""),
+                "wechat": ("lalt+lwin", key_mapping.VoiceTriggerMode.HOLD, ""),
                 "doubao": ("ralt", key_mapping.VoiceTriggerMode.HOLD, ""),
-                "qianwen_ralt": ("ralt", key_mapping.VoiceTriggerMode.HOLD, ""),
+                "qianwen_ralt": ("rctrl", key_mapping.VoiceTriggerMode.HOLD, ""),
                 "bage": ("lalt", key_mapping.VoiceTriggerMode.HOLD, ""),
             }
             if preset_id == "custom":
@@ -1290,6 +1293,30 @@ def _load_qt_classes() -> dict:
             return self._takeover_running
 
         takeoverRunning = Property(bool, _get_takeover_running, notify=takeoverRunningChanged)
+
+        def _get_launch_at_login(self) -> bool:
+            return self._launch_at_login
+
+        def _set_launch_at_login(self, enabled: bool) -> None:
+            enabled = bool(enabled)
+            if enabled == self._launch_at_login:
+                return
+            try:
+                login_autostart.apply(enabled, daemon_control.daemon_executable())
+                config.store_launch_at_login(self._config_root, enabled)
+            except Exception as exc:  # noqa: BLE001 - a Qt slot must not escape
+                self._set_error_message(f"开机自启没有改成：{exc}")
+                self.launchAtLoginChanged.emit()
+                return
+            self._launch_at_login = enabled
+            self._config["launch_at_login"] = enabled
+            self._set_error_message("")
+            self._set_status_message("已开启开机自启。" if enabled else "已关闭开机自启。")
+            self.launchAtLoginChanged.emit()
+
+        launchAtLogin = Property(
+            bool, _get_launch_at_login, _set_launch_at_login, notify=launchAtLoginChanged
+        )
 
         def _set_takeover_running(self, running: bool) -> None:
             if running == self._takeover_running:

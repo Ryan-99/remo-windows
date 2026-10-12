@@ -1,0 +1,25 @@
+.build/
+.tools/
+dist/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Rust build output and local scratch. These are reproducible or machine-specific.
+target/
+artifacts/
+*.log
+.codex/
+
+# PlatformIO build tree for firmware/ - ~59 MB of toolchain output and
+# compiled images, all of it reproducible from platformio.ini + src/.
+.pio/
+
+# Local project-control records are not part of the public source release.
+docs/*
+!docs/screenshots/
+!docs/screenshots/settings-connection.png
+!docs/screenshots/settings-buttons.png
+!docs/rc003-hardware-acceptance.md
+AGENTS.md

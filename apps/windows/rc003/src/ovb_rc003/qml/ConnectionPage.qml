@@ -31,6 +31,7 @@ Item {
             "lwin": "左 Win",
             "rwin": "右 Win",
             "space": "空格",
+            "comma": "逗号",
             "tab": "Tab",
             "enter": "回车",
             "return": "回车",
@@ -70,7 +71,7 @@ Item {
             width: root.width - 84
             x: 42
             y: 24
-            height: Math.max(implicitHeight, root.height - 40)
+            height: Math.max(implicitHeight, root.height - 96)
             spacing: 16
 
             RowLayout {
@@ -277,18 +278,9 @@ Item {
                         cornerRadius: tokens.cornerRadiusLarge
                         ColumnLayout {
                             anchors.fill: parent
-                            anchors.margins: 18
-                            spacing: 10
+                            anchors.margins: 16
+                            spacing: 6
                             Label { text: qsTr("语音输入法"); color: tokens.textPrimary; font.bold: true; font.pixelSize: 15 }
-                            Item {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                ColumnLayout {
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    anchors.verticalCenterOffset: -36
-                                    spacing: 10
                             Label {
                                 Layout.fillWidth: true
                                 text: qsTr("输入法")
@@ -299,7 +291,7 @@ Item {
                                 id: connectionVoicePresetCombo
                                 objectName: "connectionVoicePresetCombo"
                                 Layout.fillWidth: true
-                                implicitHeight: 40
+                                implicitHeight: 34
                                 model: SettingsController.voicePresetOptions
                                 currentIndex: Math.max(0, SettingsController.voicePresetIds.indexOf(SettingsController.voicePresetId))
                                 onActivated: {
@@ -320,7 +312,7 @@ Item {
                                 id: voiceChordField
                                 objectName: "connectionVoiceChordField"
                                 Layout.fillWidth: true
-                                implicitHeight: 44
+                                implicitHeight: 36
                                 radius: 10
                                 activeFocusOnTab: SettingsController.voicePresetId === "custom"
                                 property bool capturing: false
@@ -348,7 +340,7 @@ Item {
                                     anchors.rightMargin: 12
                                     text: voiceChordField.capturing
                                           ? qsTr("请按下要按住的键")
-                                          : qsTr("按住  %1").arg(root.voiceChordLabel(SettingsController.hotkeyText))
+                                          : qsTr("按住 %1").arg(root.voiceChordLabel(SettingsController.hotkeyText))
                                     color: voiceChordField.capturing ? Qt.darker(tokens.accent, 1.25) : tokens.textPrimary
                                     font.pixelSize: 14
                                     font.bold: true
@@ -376,13 +368,19 @@ Item {
                             }
                             Label {
                                 Layout.fillWidth: true
+                                Layout.topMargin: 2
                                 visible: SettingsController.voicePresetId === "wechat"
+                                    || SettingsController.voicePresetId === "qianwen_ralt"
+                                    || SettingsController.voicePresetId === "bage"
                                 wrapMode: Text.WordWrap
-                                text: qsTr("右 Alt 会唤起豆包。请把微信输入法的语音快捷键改成右 Ctrl + 空格。")
+                                text: SettingsController.voicePresetId === "qianwen_ralt"
+                                      ? qsTr("请把千问的语音快捷键设成按住右 Ctrl。右 Alt 是豆包的语音键。")
+                                      : SettingsController.voicePresetId === "bage"
+                                        ? qsTr("网易叭哥说的口述键是按住左 Alt。")
+                                        : qsTr("请把微信输入法的语音快捷键改成左 Alt + 左 Win。先按住左 Alt，再按左 Win。")
                                 color: tokens.textSecondary
                                 font.pixelSize: 12
-                            }
-                                }
+                                lineHeight: 1.25
                             }
                             Label {
                                 Layout.fillWidth: true
@@ -431,8 +429,6 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 Layout.minimumHeight: 148
-                                Layout.maximumHeight: 280
-                                Layout.alignment: Qt.AlignTop
                                 spacing: 8
                                 Repeater {
                                     model: SettingsController.statisticsDailyRows
@@ -447,7 +443,7 @@ Item {
                                                 anchors.horizontalCenter: parent.horizontalCenter
                                                 anchors.bottom: parent.bottom
                                                 width: 22
-                                                height: Math.max(6, parent.height * (Number(modelData.button_count) || 0) / root.dailyPeak())
+                                                height: Math.max(6, parent.height * 0.58 * (Number(modelData.button_count) || 0) / root.dailyPeak())
                                                 radius: 6
                                                 color: (Number(modelData.button_count) || 0) > 0 ? tokens.accent : tokens.border
                                             }

@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Remo · 把小米蓝牙遥控器变成 Windows 的键盘和麦克风</title>
+  <meta name="description" content="Remo 是面向小米蓝牙语音遥控器 2 Pro（RC003）的 Windows 软件：按键映射为键盘动作，按住麦克风键即可用微信输入法、豆包等语音输入。">
+  <meta property="og:title" content="Remo · 遥控器变键盘，也变麦克风">
+  <meta property="og:description" content="用小米蓝牙语音遥控器 2 Pro 操控 Windows，并用它做语音输入。一次安装，装好即用。">
+  <meta property="og:image" content="assets/logo-512.png">
+  <link rel="icon" href="assets/favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="assets/logo-512.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="nav" id="top">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top" aria-label="Remo 首页">
+      <img src="assets/logo-128.png" alt="" width="30" height="30">
+      <span>Remo</span>
+    </a>
+    <nav class="nav-links" aria-label="主导航">
+      <a href="#features">功能</a>
+      <a href="#how">原理</a>
+      <a href="#keys">按键</a>
+      <a href="#voice">语音</a>
+      <a href="#shots">界面</a>
+      <a href="#start">上手</a>
+      <a href="#faq">常见问题</a>
+    </nav>
+    <a class="btn btn-primary btn-sm" href="https://github.com/Ryan-99/remo-windows/releases/latest">下载</a>
+  </div>
+</header>
+
+<main>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="glow glow-a" aria-hidden="true"></div>
+  <div class="glow glow-b" aria-hidden="true"></div>
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <p class="eyebrow"><span class="dot"></span> 小米蓝牙语音遥控器 2 Pro · RC003 · Windows</p>
+      <h1>遥控器变<span class="hl">键盘</span>，<br>也变<span class="hl voice">麦克风</span>。</h1>
+      <p class="lead">Remo 把 RC003 的按键和语音，转成 Windows 认得的键盘动作与语音输入。躺在沙发上，也能翻页、控制播放，按住麦克风键对着输入法说话。</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/Ryan-99/remo-windows/releases/latest">下载 Remo</a>
+        <a class="btn btn-ghost" href="https://github.com/Ryan-99/remo-windows">GitHub 仓库</a>
+      </div>
+      <ul class="meta">
+        <li>已在 RC003 真机验证</li>
+        <li>Windows 10 1809+ · 64 位</li>
+        <li>一次安装，装好即用</li>
+      </ul>
+    </div>
+
+    <div class="hero-visual">
+      <!-- 真实遥控器照片：悬停/聚焦按键可查看默认映射（热区坐标取自 remote_layout.py，单位为照片宽高的百分比） -->
+      <div class="remote-stage">
+        <div class="photo" id="remote" role="group" aria-label="小米蓝牙语音遥控器 2 Pro（RC003）">
+          <img src="assets/rc003-remote.png" alt="小米蓝牙语音遥控器 2 Pro（RC003）" width="508" height="1030">
+          <button class="hs" style="--x:37%;--y:9.1%;--w:15%;--h:7.2%" data-name="电源键" data-desc="默认：Esc。可自定义" aria-label="电源键"></button>
+          <button class="hs hs-voice" style="--x:64.3%;--y:9.1%;--w:15%;--h:7.2%" data-name="麦克风键" data-desc="按住说话，触发当前输入法的语音输入" data-voice="1" aria-label="麦克风键"></button>
+          <button class="hs" style="--x:51.7%;--y:16.8%;--w:18%;--h:6.5%" data-name="上键" data-desc="默认：方向上。可自定义" aria-label="上键"></button>
+          <button class="hs" style="--x:33%;--y:24.1%;--w:15%;--h:8%" data-name="左键" data-desc="默认：方向左。可自定义" aria-label="左键"></button>
+          <button class="hs" style="--x:50.3%;--y:24.1%;--w:19%;--h:9.5%" data-name="确定键" data-desc="默认：回车。可自定义" aria-label="确定键"></button>
+          <button class="hs" style="--x:68.3%;--y:24.4%;--w:15%;--h:8%" data-name="右键" data-desc="默认：方向右。可自定义" aria-label="右键"></button>
+          <button class="hs" style="--x:50.3%;--y:31.5%;--w:18%;--h:6.5%" data-name="下键" data-desc="默认：方向下。可自定义" aria-label="下键"></button>
+          <button class="hs" style="--x:39.7%;--y:38.2%;--w:17%;--h:8%" data-name="返回键" data-desc="默认：退格（Backspace）。可自定义" aria-label="返回键"></button>
+          <button class="hs" style="--x:61.7%;--y:38.8%;--w:16%;--h:8%" data-name="音量 + 键" data-desc="默认：系统音量加。可自定义" aria-label="音量加键"></button>
+          <button class="hs" style="--x:40.3%;--y:47.6%;--w:17%;--h:8%" data-name="主页键" data-desc="默认：显示桌面。可自定义" aria-label="主页键"></button>
+          <button class="hs" style="--x:62.3%;--y:47.9%;--w:16%;--h:8%" data-name="音量 − 键" data-desc="默认：系统音量减。可自定义" aria-label="音量减键"></button>
+          <button class="hs" style="--x:39%;--y:56.8%;--w:17%;--h:8%" data-name="菜单键" data-desc="默认：上下文菜单。可自定义" aria-label="菜单键"></button>
+          <button class="hs" style="--x:61%;--y:56.8%;--w:17%;--h:8%" data-name="TV 键" data-desc="默认：应用切换。可自定义" aria-label="TV键"></button>
+        </div>
+        <div class="remote-tip" id="remoteTip" aria-live="polite">
+          <strong>悬停任意按键</strong>
+          <span>查看它的默认作用</span>
+        </div>
+      </div>
+      <p class="caption">产品图片版权归小米公司所有，仅用于说明 Remo 支持的设备</p>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="section" id="features">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <p class="kicker">能做什么</p>
+      <h2>一只遥控器，接管键盘与语音</h2>
+      <p>Remo 在后台运行，负责蓝牙连接、按键翻译和语音转发。</p>
+    </div>
+    <div class="cards">
+      <article class="card reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+        <h3>13 键自由映射</h3>
+        <p>每个普通按键都能分别设置单击、双击和长按的动作。设置窗口里有一张遥控器图，选哪个键就改哪个键。</p>
+      </article>
+      <article class="card card-voice reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+        <h3>遥控器当麦克风</h3>
+        <p>按住麦克风键说话，Remo 把遥控器的声音送进虚拟麦克风，同时按下输入法的语音快捷键，文字直接出现在光标处。</p>
+      </article>
+      <article class="card reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.5 3.2 7.8 8 9 4.8-1.2 8-4.5 8-9V6l-8-3Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m8.5 12 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h3>只认你的遥控器</h3>
+        <p>按键只从这支 RC003 读取，不会把电脑键盘的输入算进去。语音只写入虚拟声卡，不改你的系统默认音频设备。</p>
+      </article>
+      <article class="card reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M5 12a7 7 0 0 1 12-4.9M19 12a7 7 0 0 1-12 4.9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M17 3v4h-4M7 21v-4h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h3>开机自启，断线重连</h3>
+        <p>后台服务随 Windows 启动，遥控器休眠或断开后会自动重连，不用每次手动打开软件。</p>
+      </article>
+      <article class="card reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H4zM9 20h6M12 16v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h3>所按即所见</h3>
+        <p>按下遥控器上的键，设置窗口里对应的按键会立刻高亮。还能看到最近 7 天的按键统计，配置有没有生效一目了然。</p>
+      </article>
+      <article class="card reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h3>一次安装，装好即用</h3>
+        <p>一体化安装包同时装好虚拟键盘和虚拟声卡并启动后台服务。你只需要配对遥控器、选一个输入法。</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- How it works -->
+<section class="section section-alt" id="how">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <p class="kicker">工作原理</p>
+      <h2>从遥控器到应用，一条清晰的链路</h2>
+    </div>
+    <ol class="flow reveal">
+      <li>
+        <span class="step-n">1</span>
+        <h3>RC003 遥控器</h3>
+        <p>通过蓝牙与电脑配对，发出按键和语音数据。</p>
+      </li>
+      <li>
+        <span class="step-n">2</span>
+        <h3>Remo 后台服务</h3>
+        <p>保持蓝牙连接，识别每一次按键，并解码遥控器的语音。</p>
+      </li>
+      <li>
+        <span class="step-n">3</span>
+        <h3>虚拟键盘与虚拟声卡</h3>
+        <p>按键变成键盘动作；语音写入虚拟麦克风，并触发输入法的语音快捷键。</p>
+      </li>
+      <li>
+        <span class="step-n">4</span>
+        <h3>你的应用</h3>
+        <p>微信输入法、豆包、WPS 等，把它当作普通键盘和麦克风使用。</p>
+      </li>
+    </ol>
+    <p class="note reveal">Remo 只处理这支遥控器的输入。你电脑上的实体键盘不会被拦截，也不会被当作遥控器按键。</p>
+  </div>
+</section>
+
+<!-- Keys -->
+<section class="section" id="keys">
+  <div class="wrap two-col">
+    <div class="reveal">
+      <p class="kicker">按键映射</p>
+      <h2>13 个物理键，各司其职</h2>
+      <p>RC003 共 12 个普通按键加 1 个麦克风键。普通按键开箱就有一套顺手的默认映射，也可以随时改成你的习惯。</p>
+      <ul class="ticks">
+        <li>单击、双击、长按，三种触发各自独立设置</li>
+        <li>保存映射后立即生效，不用重启</li>
+        <li>一次按键只触发一次动作，不会重复</li>
+        <li>随时一键恢复默认映射</li>
+      </ul>
+    </div>
+    <div class="reveal">
+      <div class="keys-grid" aria-label="默认映射">
+        <span><b>电源</b><small>Esc</small></span>
+        <span><b>上</b><small>方向上</small></span>
+        <span><b>下</b><small>方向下</small></span>
+        <span><b>左</b><small>方向左</small></span>
+        <span><b>右</b><small>方向右</small></span>
+        <span><b>确定</b><small>回车</small></span>
+        <span><b>返回</b><small>退格</small></span>
+        <span><b>主页</b><small>显示桌面</small></span>
+        <span><b>菜单</b><small>上下文菜单</small></span>
+        <span><b>TV</b><small>应用切换</small></span>
+        <span><b>音量＋</b><small>系统音量加</small></span>
+        <span><b>音量－</b><small>系统音量减</small></span>
+        <span class="voice"><b>麦克风</b><small>按住说话 · 语音输入</small></span>
+      </div>
+      <p class="fine">以上为默认映射，均可在设置里修改。</p>
+    </div>
+  </div>
+</section>
+
+<!-- Voice -->
+<section class="section section-alt" id="voice">
+  <div class="wrap two-col">
+    <div class="reveal">
+      <p class="kicker voice">语音输入</p>
+      <h2>按住说话，文字出现在光标处</h2>
+      <p>在设置里选好你用的输入法，Remo 会自动套用对应的语音快捷键。按住遥控器的麦克风键说话，松开即结束。</p>
+      <div class="ime-list">
+        <div class="ime"><strong>微信输入法</strong><span>按住 <code>左 Alt + 左 Win</code>。需先在输入法里把语音快捷键改成这个</span></div>
+        <div class="ime"><strong>豆包</strong><span>按住 <code>右 Alt</code></span></div>
+        <div class="ime"><strong>千问</strong><span>按住 <code>右 Ctrl</code></span></div>
+        <div class="ime"><strong>网易叭哥说</strong><span>按住 <code>左 Alt</code></span></div>
+        <div class="ime"><strong>自定义</strong><span>其他输入法，可自己指定快捷键</span></div>
+      </div>
+    </div>
+    <div class="reveal">
+      <div class="audio-path" aria-label="语音链路">
+        <div class="ap-node">RC003<small>麦克风键</small></div>
+        <div class="ap-arrow"></div>
+        <div class="ap-node ap-main">Remo<small>解码语音</small></div>
+        <div class="ap-arrow"></div>
+        <div class="ap-node">CABLE Input<small>虚拟扬声器</small></div>
+        <div class="ap-arrow"></div>
+        <div class="ap-node">CABLE Output<small>虚拟麦克风</small></div>
+        <div class="ap-arrow"></div>
+        <div class="ap-node ap-end">输入法<small>识别并上屏</small></div>
+      </div>
+      <p class="note">安装包已自带虚拟声卡（<a href="https://vb-audio.com/Cable/" rel="noopener">VB-CABLE</a>）和虚拟键盘。Remo 的语音输出选 <code>CABLE Input</code>，输入法的麦克风选 <code>CABLE Output</code>。装完后 Windows 偶尔需要重启一次，遥控器的声音才会进到输入法。</p>
+    </div>
+  </div>
+</section>
+
+<!-- Screenshots -->
+<section class="section" id="shots">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <p class="kicker">界面</p>
+      <h2>看得见的设置</h2>
+      <p>连接状态、语音输入法、按键映射，都在一个窗口里完成。</p>
+    </div>
+    <div class="shots">
+      <figure class="shot reveal">
+        <div class="frame"><img src="assets/screenshot-connection.png" alt="Remo 连接页：开始接管、语音输出、语音输入法与最近 7 天统计" loading="lazy" onerror="this.parentNode.classList.add('missing')"><div class="ph">连接页截图<br><small>assets/screenshot-connection.png</small></div></div>
+        <figcaption><b>连接</b>　开始或停止接管，选择语音输出和输入法</figcaption>
+      </figure>
+      <figure class="shot reveal">
+        <div class="frame"><img src="assets/screenshot-buttons.png" alt="Remo 按键页：每个按键的单击、双击、长按映射" loading="lazy" onerror="this.parentNode.classList.add('missing')"><div class="ph">按键页截图<br><small>assets/screenshot-buttons.png</small></div></div>
+        <figcaption><b>按键</b>　一眼看清每个键的单击、双击和长按</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- Quick start -->
+<section class="section section-alt" id="start">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <p class="kicker">快速上手</p>
+      <h2>四步，五分钟</h2>
+    </div>
+    <ol class="steps reveal">
+      <li><span>1</span><div><h3>下载并安装</h3><p>从发布页下载 <code>RemoSetup-0.1.0.exe</code> 并运行，在管理员授权提示里点「是」。安装器会装好虚拟键盘和虚拟声卡，并启动后台服务。</p></div></li>
+      <li><span>2</span><div><h3>配对遥控器</h3><p>同时长按遥控器的主页键和菜单键进入配对状态，在 Windows「蓝牙和其他设备」里完成配对。</p></div></li>
+      <li><span>3</span><div><h3>打开 Remo，选输入法</h3><p>在连接页选择你用的语音输入法，语音输出确认是 <code>CABLE Input</code>，点「开始接管」。</p></div></li>
+      <li><span>4</span><div><h3>试试按键和语音</h3><p>先按方向键、确定键验证映射；再让光标停在任意输入框，按住麦克风键说话。</p></div></li>
+    </ol>
+    <div class="cta center reveal">
+      <a class="btn btn-primary" href="https://github.com/Ryan-99/remo-windows/releases/latest">前往下载页</a>
+      <a class="btn btn-ghost" href="https://github.com/Ryan-99/remo-windows">查看项目主页</a>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="section" id="faq">
+  <div class="wrap narrow">
+    <div class="section-head reveal">
+      <p class="kicker">常见问题</p>
+      <h2>先把话说清楚</h2>
+    </div>
+    <div class="faq reveal">
+      <details>
+        <summary>支持哪些遥控器？</summary>
+        <p>目前面向小米蓝牙语音遥控器 2 Pro（RC003），已在 RC003 真机上验证过按键和语音输入。</p>
+      </details>
+      <details>
+        <summary>安装时为什么要管理员权限？</summary>
+        <p>因为一体化安装包要安装虚拟键盘和虚拟声卡，这两项都是系统级组件。授权只发生在安装阶段，你可以随时在系统的「应用」里卸载。</p>
+      </details>
+      <details>
+        <summary>为什么 Windows 提示“已保护你的电脑”？</summary>
+        <p>安装包目前没有做代码签名，SmartScreen 会给出提示，属预期行为。确认下载来源可靠后，点「更多信息 → 仍要运行」即可。</p>
+      </details>
+      <details>
+        <summary>它会一直在后台运行吗？</summary>
+        <p>会。安装后后台服务随 Windows 启动，保证遥控器随时可用。想停掉它，可在开始菜单里点「停止 Remo」，或在设置窗口里点「停止接管」。</p>
+      </details>
+      <details>
+        <summary>语音没有文字出来怎么办？</summary>
+        <p>按顺序检查三件事：输入法自己的语音快捷键是否与 Remo 里选的预设一致（微信输入法需手动改成按住左 Alt + 左 Win）；输入法的麦克风是否选了 <code>CABLE Output</code>；刚装完虚拟声卡的话，重启一次 Windows。</p>
+      </details>
+      <details>
+        <summary>已知限制有哪些？</summary>
+        <ul>
+          <li>仅支持 Windows 10 1809 及以上的 64 位系统。</li>
+          <li>安装包未签名。</li>
+          <li>遥控器本身没有独立的静音键。</li>
+          <li>不同输入法对语音快捷键的处理有差异，新输入法可先用「自定义」预设尝试。</li>
+        </ul>
+      </details>
+      <details>
+        <summary>数据会上传吗？</summary>
+        <p>不会。设置和日志写在本机 <code>%LOCALAPPDATA%\RemoteMic\RC003</code>，不保存蓝牙地址等设备标识。</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- Final CTA -->
+<section class="final">
+  <div class="wrap final-inner reveal">
+    <img class="final-logo" src="assets/logo-128.png" alt="" width="64" height="64">
+    <h2>让遥控器，多干点活。</h2>
+    <p>一次安装，配对即用。</p>
+    <div class="cta center">
+      <a class="btn btn-light" href="https://github.com/Ryan-99/remo-windows/releases/latest">下载 Remo for Windows</a>
+      <a class="btn btn-outline-light" href="https://github.com/Ryan-99/remo-windows">GitHub</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <div class="brand"><img src="assets/logo-128.png" alt="" width="24" height="24"><span>Remo</span></div>
+    <p>Remo 是非官方项目，与小米公司无隶属关系。代码以 GPL-3.0-only 许可发布。Remo 基于 <a href="https://github.com/HD838A/remote-mic-app" rel="noopener">HD838A/remote-mic-app</a> 演进，并参考 <a href="https://github.com/nijez/open-voice-bridge" rel="noopener">open-voice-bridge</a>；虚拟键盘使用 <a href="https://github.com/cgutman/WinUHid" rel="noopener">WinUHid</a>（MIT）；虚拟声卡为 VB-Audio 的 <a href="https://vb-audio.com/Cable/" rel="noopener">VB-CABLE</a>，是独立的第三方软件。</p>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

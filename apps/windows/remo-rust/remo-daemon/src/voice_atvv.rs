@@ -174,8 +174,12 @@ fn session(
     let mut opened_this_press = false;
     let mut audio_packets = 0u32;
     let mut audio_samples = 0u32;
-    let mut nudged_open = false;
-    let mut refreshed_notify = false;
+    let mut ignore_stop_until = Instant::now();
+    let mut reopened = false;
+    let mut priming = false;
+    let mut prime_saw_start = false;
+    let mut repair = Repair::new();
+    let mut last_player_try: Option<Instant> = None;
     loop {
         let event = match poll_voice(keys, &control_rx, &audio_rx) {
             Ok(event) => event,
@@ -183,18 +187,32 @@ fn session(
         };
         match event {
             Some(Incoming::Press) => {
+                let was_priming = priming;
+                priming = false;
+                repair.on_press();
                 audio_packets = 0;
                 audio_samples = 0;
                 opened_this_press = false;
-                nudged_open = false;
-                refreshed_notify = false;
+                reopened = false;
+                ignore_stop_until = Instant::now();
                 while audio_rx.try_recv().is_ok() {}
                 // A lost AUDIO_STOP leaves the local flag open and the next
                 // hold never sends MIC_OPEN. Clear that flag only. Closing
                 // the remote from here makes it answer with AUDIO_STOP while
                 // the key is still down, and rebuilding the link then lets
-                // the mic key through as F5.
-                if session.active() || opening {
+                // the mic key through as F5. The idle warm-up is the exception:
+                // it is already an empty open, and the real press has to close
+                // it before asking again.
+                if was_priming {
+                    ignore_stop_until = Instant::now() + Duration::from_millis(500);
+                    let version = session.version();
+                    let stream = session.stream().unwrap_or(0);
+                    session.force_idle();
+                    opening = false;
+                    if version != 0 {
+                        let _ = write_bytes(&tx_char, &atvv::mic_close_command(version, stream));
+                    }
+                } else if session.active() || opening {
                     session.force_idle();
                     opening = false;
                 }
@@ -217,8 +235,14 @@ fn session(
                         let samples = session.handle_audio(&payload);
                         audio_samples = audio_samples.saturating_add(samples.len() as u32);
                         if !samples.is_empty() {
-                            if let Some(player) = &player {
-                                player.write(samples);
+                            let mut playback_dead = false;
+                            if let Some(live) = &player {
+                                if !live.write(samples) {
+                                    playback_dead = true;
+                                }
+                            }
+                            if playback_dead {
+                                player = None;
                             }
                         }
                     }
@@ -244,22 +268,25 @@ fn session(
                 } else {
                     format!("已播放遥控器音频，采样 {audio_samples}")
                 };
-                let stale = opened_this_press
-                    && audio_packets == 0
-                    && held >= Duration::from_millis(1500);
                 opened_this_press = false;
+                repair.on_release(Instant::now(), audio_samples > 0);
                 let _ = diag.send(Command::Diagnostic(serde_json::json!({
                     "type": "voice_link",
                     "detail": detail,
                 })));
-                // A tap that ends before frames arrive is normal. Only a real
-                // hold with no packets means this audio subscription is dead.
-                // The session is opened again; the notify is not rewritten.
-                if stale {
-                    return Err("音频通知已失效，正在重新建立语音连接".into());
-                }
+                // Leave the connection up. Dropping it after one silent hold
+                // makes the following presses arrive while the link is down,
+                // so the input method never wakes. The repair below reopens
+                // the microphone while the key is up instead.
             }
-            Some(Incoming::Control(payload)) => match session.handle_control(&payload) {
+            Some(Incoming::Control(payload)) => {
+                // A recovery MIC_CLOSE is answered with AUDIO_STOP. That stop
+                // belongs to the empty stream, and must not cancel the open
+                // that follows it.
+                if payload.first() == Some(&0x00) && Instant::now() < ignore_stop_until {
+                    continue;
+                }
+                match session.handle_control(&payload) {
                 Control::Capabilities(version) => {
                     let _ = diag.send(Command::Diagnostic(serde_json::json!({
                         "type": "voice_link",
@@ -286,9 +313,14 @@ fn session(
                 Control::AudioStarted(stream) => {
                     opening = false;
                     last_extend = Instant::now();
+                    if priming {
+                        prime_saw_start = true;
+                    }
+                    let bytes: String = payload.iter().map(|byte| format!("{byte:02x}")).collect();
                     let _ = diag.send(Command::Diagnostic(serde_json::json!({
                         "type": "voice_audio_started",
                         "stream": stream,
+                        "bytes": bytes,
                     })));
                 }
                 Control::AudioStopped | Control::MicClosed => {
@@ -298,14 +330,20 @@ fn session(
                 }
                 Control::MicButton if !session.active() && !opening => pending_press = true,
                 _ => {}
-            },
+                }
+            }
             Some(Incoming::Audio(payload)) => {
+                if priming {
+                    continue;
+                }
                 audio_packets = audio_packets.saturating_add(1);
                 let samples = session.handle_audio(&payload);
                 audio_samples = audio_samples.saturating_add(samples.len() as u32);
                 if !samples.is_empty() {
-                    if let Some(player) = &player {
-                        player.write(samples);
+                    if let Some(live) = &player {
+                        if !live.write(samples) {
+                            player = None;
+                        }
                     }
                 }
             }
@@ -329,89 +367,115 @@ fn session(
                 "detail": "遥控器没有开始传送语音",
             })));
         }
-        // A hold that only gets stream 0 has not started a real recording.
-        // Ask again on the same connection. Dropping the link here is what
-        // lets the mic key reach Windows as F5.
-        let quiet = opened_this_press
+        // A stuck remote answers MIC_OPEN with stream 0 and then sends no
+        // frames. Close that empty session and open again on the same
+        // connection. Leaving the GATT session up keeps the input method
+        // chord held.
+        let empty = opened_this_press
+            && !reopened
             && audio_packets == 0
             && session.stream().unwrap_or(0) == 0
+            && opened_at.elapsed() > Duration::from_millis(400)
             && held.load(Ordering::SeqCst);
-        if quiet && !nudged_open && opened_at.elapsed() > Duration::from_millis(350) {
-            if write_bytes(&tx_char, &atvv::mic_open_command(session.version())).is_ok() {
-                nudged_open = true;
-                opening = true;
-                opened_at = Instant::now();
-                let _ = diag.send(Command::Diagnostic(serde_json::json!({
-                    "type": "voice_link",
-                    "detail": "遥控器还没传来音频，正在再次打开麦克风",
-                })));
-            }
-        }
-        if quiet && nudged_open && !refreshed_notify && opened_at.elapsed() > Duration::from_millis(450) {
-            refreshed_notify = true;
-            if held.load(Ordering::SeqCst)
-                && refresh_audio_notify(&audio_char).is_ok()
-                && held.load(Ordering::SeqCst)
-            {
-                session.force_idle();
-                opening = false;
-                if write_bytes(&tx_char, &atvv::mic_open_command(session.version())).is_ok() {
+        if empty {
+            reopened = true;
+            ignore_stop_until = Instant::now() + Duration::from_millis(500);
+            let version = session.version();
+            session.force_idle();
+            opening = false;
+            if version != 0 {
+                let _ = write_bytes(&tx_char, &atvv::mic_close_command(version, 0));
+                let _ = write_bytes(&tx_char, &atvv::GET_CAPABILITIES);
+                if write_bytes(&tx_char, &atvv::mic_open_command(version)).is_ok() {
                     opening = true;
-                    opened_this_press = true;
+                    pending_press = false;
                     opened_at = Instant::now();
                     let _ = diag.send(Command::Diagnostic(serde_json::json!({
                         "type": "voice_link",
-                        "detail": "正在重新订阅遥控器音频",
+                        "detail": "麦克风没有出声，已重新打开",
                     })));
                 }
             }
         }
-        if session.active() && session.version() >= 0x0100 && last_extend.elapsed() >= Duration::from_millis(2500) {
+        // The remote only emits its own audio start (04 03 ..) on a physical
+        // press after the host has already opened and closed once. That first
+        // cycle carries no samples, so do it while the key is up.
+        if priming && !held.load(Ordering::SeqCst) {
+            let stream = session.stream().unwrap_or(0);
+            let saw = prime_saw_start || session.active() || session.stream().is_some();
+            let ready = saw || opened_at.elapsed() > Duration::from_millis(350);
+            if ready {
+                let version = session.version();
+                ignore_stop_until = Instant::now() + Duration::from_millis(400);
+                session.force_idle();
+                opening = false;
+                priming = false;
+                prime_saw_start = false;
+                repair.on_prime_finished(saw);
+                if version != 0 {
+                    let _ = write_bytes(&tx_char, &atvv::mic_close_command(version, stream));
+                    let _ = write_bytes(&tx_char, &atvv::GET_CAPABILITIES);
+                }
+                let _ = diag.send(Command::Diagnostic(serde_json::json!({
+                    "type": "voice_link",
+                    "detail": if saw { "空闲预热已完成" } else { "麦克风没有应答" },
+                })));
+            }
+        }
+        let idle = session.version() != 0
+            && !priming
+            && !opening
+            && !pending_press
+            && !session.active()
+            && !held.load(Ordering::SeqCst);
+        if player.is_none() && idle {
+            let due = last_player_try
+                .map(|at| at.elapsed() > Duration::from_secs(3))
+                .unwrap_or(true);
+            if due {
+                last_player_try = Some(Instant::now());
+                match Player::open(endpoint.to_string()) {
+                    Ok(opened) => {
+                        player = Some(opened);
+                        let _ = diag.send(Command::Diagnostic(serde_json::json!({
+                            "type": "voice_link",
+                            "detail": format!("播放端点已重新打开：{endpoint}"),
+                        })));
+                    }
+                    Err(error) => {
+                        let _ = diag.send(Command::Diagnostic(serde_json::json!({
+                            "type": "voice_link",
+                            "detail": error,
+                        })));
+                    }
+                }
+            }
+        }
+        match repair.poll(Instant::now(), idle) {
+            RepairStep::Prime => {
+                let quiet = repair.take_quiet_press();
+                write_bytes(&tx_char, &atvv::mic_open_command(session.version()))?;
+                repair.on_prime_started(Instant::now());
+                priming = true;
+                prime_saw_start = false;
+                opening = true;
+                opened_at = Instant::now();
+                let _ = diag.send(Command::Diagnostic(serde_json::json!({
+                    "type": "voice_link",
+                    "detail": if quiet { "这次没有收到音频，正在重新准备麦克风" } else { "空闲时预先打开麦克风" },
+                })));
+            }
+            RepairStep::Rebuild => {
+                return Err("重新建立语音连接：麦克风没有应答".into());
+            }
+            RepairStep::Wait => {}
+        }
+        if session.active() && !priming && session.version() >= 0x0100 && last_extend.elapsed() >= Duration::from_millis(2500) {
             if let Some(stream) = session.stream().filter(|stream| *stream != 0) {
                 let _ = write_bytes(&tx_char, &atvv::mic_extend_command(stream));
                 last_extend = Instant::now();
             }
         }
-    }
-}
-
-#[cfg(windows)]
-fn refresh_audio_notify(
-    characteristic: &windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic,
-) -> Result<(), String> {
-    use windows::Devices::Bluetooth::GenericAttributeProfile::{
-        GattCharacteristicProperties, GattClientCharacteristicConfigurationDescriptorValue,
-    };
-    let props = characteristic
-        .CharacteristicProperties()
-        .unwrap_or(GattCharacteristicProperties(0));
-    let enabled = if props.contains(GattCharacteristicProperties::Indicate)
-        && !props.contains(GattCharacteristicProperties::Notify)
-    {
-        GattClientCharacteristicConfigurationDescriptorValue::Indicate
-    } else {
-        GattClientCharacteristicConfigurationDescriptorValue::Notify
-    };
-    write_cccd(characteristic, GattClientCharacteristicConfigurationDescriptorValue::None)?;
-    thread::sleep(Duration::from_millis(120));
-    write_cccd(characteristic, enabled)
-}
-
-#[cfg(windows)]
-fn write_cccd(
-    characteristic: &windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic,
-    value: windows::Devices::Bluetooth::GenericAttributeProfile::GattClientCharacteristicConfigurationDescriptorValue,
-) -> Result<(), String> {
-    use windows::Devices::Bluetooth::GenericAttributeProfile::GattCommunicationStatus;
-    let status = wait(
-        characteristic
-            .WriteClientCharacteristicConfigurationDescriptorAsync(value)
-            .map_err(|error| error.to_string())?,
-    )?;
-    if status == GattCommunicationStatus::Success {
-        Ok(())
-    } else {
-        Err(format!("重新订阅音频失败: {status:?}"))
     }
 }
 
@@ -600,6 +664,94 @@ fn preferred(name: &str) -> bool {
         || name.contains('遥')
 }
 
+/// Decides when an idle microphone should be opened and closed again.
+///
+/// The remote only starts a real recording after the host has already
+/// opened and closed once. That warm-up used to wait 15 seconds, so the
+/// next press in that window came back empty. A press that heard nothing
+/// schedules the warm-up immediately. Two warm-ups with no answer at all
+/// rebuild the Bluetooth session.
+struct Repair {
+    armed: bool,
+    prime_not_before: Option<Instant>,
+    last_prime: Option<Instant>,
+    failed_primes: u8,
+    quiet_press: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RepairStep {
+    Wait,
+    Prime,
+    Rebuild,
+}
+
+impl Repair {
+    fn new() -> Self {
+        Self {
+            armed: false,
+            prime_not_before: None,
+            last_prime: None,
+            failed_primes: 0,
+            quiet_press: false,
+        }
+    }
+
+    fn on_press(&mut self) {
+        self.armed = false;
+    }
+
+    fn on_release(&mut self, now: Instant, heard_audio: bool) {
+        self.armed = false;
+        self.prime_not_before = Some(now + Duration::from_millis(250));
+        self.quiet_press = !heard_audio;
+    }
+
+    fn on_prime_started(&mut self, now: Instant) {
+        self.last_prime = Some(now);
+        self.prime_not_before = None;
+    }
+
+    fn on_prime_finished(&mut self, saw_audio_start: bool) {
+        if saw_audio_start {
+            self.armed = true;
+            self.failed_primes = 0;
+        } else {
+            self.armed = false;
+            self.failed_primes = self.failed_primes.saturating_add(1);
+        }
+    }
+
+    fn take_quiet_press(&mut self) -> bool {
+        let quiet = self.quiet_press;
+        self.quiet_press = false;
+        quiet
+    }
+
+    fn poll(&self, now: Instant, idle: bool) -> RepairStep {
+        if !idle {
+            return RepairStep::Wait;
+        }
+        if self.failed_primes >= 2 {
+            return RepairStep::Rebuild;
+        }
+        if self.prime_not_before.is_some_and(|at| now < at) {
+            return RepairStep::Wait;
+        }
+        let since_prime = self.last_prime.map(|at| now.saturating_duration_since(at));
+        if self.armed {
+            if since_prime.is_none() || since_prime.is_some_and(|age| age > Duration::from_secs(15)) {
+                return RepairStep::Prime;
+            }
+            return RepairStep::Wait;
+        }
+        if since_prime.is_some_and(|age| age < Duration::from_millis(400)) {
+            return RepairStep::Wait;
+        }
+        RepairStep::Prime
+    }
+}
+
 #[cfg(not(windows))]
 fn session(
     _endpoint: &str,
@@ -609,4 +761,46 @@ fn session(
     _diag: &SyncSender<Command>,
 ) -> Result<(), String> {
     Err("ATVV 语音仅支持 Windows".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Repair, RepairStep};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_silent_press_is_repaired_without_waiting_out_the_idle_gap() {
+        let mut repair = Repair::new();
+        let start = Instant::now();
+        repair.on_prime_started(start);
+        repair.on_prime_finished(true);
+        assert_eq!(repair.poll(start + Duration::from_secs(1), true), RepairStep::Wait);
+        repair.on_press();
+        repair.on_release(start + Duration::from_secs(2), false);
+        assert_eq!(repair.poll(start + Duration::from_secs(2), true), RepairStep::Wait);
+        assert_eq!(
+            repair.poll(start + Duration::from_millis(2300), true),
+            RepairStep::Prime
+        );
+        assert!(repair.take_quiet_press());
+    }
+
+    #[test]
+    fn two_unanswered_warmups_rebuild_the_session() {
+        let mut repair = Repair::new();
+        let start = Instant::now();
+        repair.on_prime_started(start);
+        repair.on_prime_finished(false);
+        assert_eq!(repair.poll(start + Duration::from_millis(500), true), RepairStep::Prime);
+        repair.on_prime_started(start + Duration::from_millis(500));
+        repair.on_prime_finished(false);
+        assert_eq!(repair.poll(start + Duration::from_secs(1), true), RepairStep::Rebuild);
+    }
+
+    #[test]
+    fn a_press_in_progress_does_not_start_another_warmup() {
+        let mut repair = Repair::new();
+        repair.on_release(Instant::now(), false);
+        assert_eq!(repair.poll(Instant::now(), false), RepairStep::Wait);
+    }
 }

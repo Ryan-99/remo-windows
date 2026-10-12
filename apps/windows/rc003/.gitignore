@@ -1,0 +1,9 @@
+.venv/
+.venv-build-*/
+__pycache__/
+*.pyc
+.pytest-*/
+build/third_party/
+build/pyinstaller-work/
+build/RemoteMicRC003/
+src/ovb_rc003/frida_assets/*.xz
