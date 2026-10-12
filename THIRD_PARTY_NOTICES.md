@@ -58,20 +58,6 @@ without it. The package ships unmodified and is not required by, or bundled
 into, the frozen PyInstaller build unless the ESP32 bridge is explicitly
 shipped.
 
-## ESP32-C6 bridge firmware (`firmware/esp32-c6-bridge/`)
-
-- Project: `NimBLE-Arduino`, via the PlatformIO `espressif32` platform's
-  Arduino framework
-- Source: <https://github.com/h2zero/NimBLE-Arduino>
-- License: Apache License 2.0
-
-The bridge firmware in `firmware/esp32-c6-bridge/` is a separate, optional artifact that
-the user builds and flashes with PlatformIO; it is not part of the Windows
-client's own distribution and is not required for the default input source. It
-depends on `NimBLE-Arduino`, `arduino-esp32` and the Espressif RISC-V toolchain,
-each under its own upstream license, none of which are vendored into this
-repository.
-
 ## RC003 product photo
 
 The RC003 product photo bundled as `RC003-remote-photo.png` was supplied by the user on 2026-07-17 for the physical-button mapping interface. It is preserved at its original 508 x 1030 aspect ratio. Copyright and trademark rights in the photo and depicted products remain with their respective owners; the GPL-3.0-only license for the program does not grant additional rights to this image or the Xiaomi marks.

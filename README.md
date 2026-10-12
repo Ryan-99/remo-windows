@@ -1,104 +1,80 @@
-# Remote Mic · Windows 版本（RC003）
+# Remo
 
-这是小米蓝牙遥控器 2 Pro（RC003）的 Windows 客户端：把遥控器的按键和语音转成 Windows 能识别的键盘按键与语音输入，从而在电脑上操控豆包、微信、WPS 等应用。macOS 应用、Swift 工程和 macOS 发布资源不属于本仓库。
+Remo 把小米蓝牙遥控器 2 Pro（RC003）变成 Windows 上的键盘和麦克风。方向键、确定、返回和音量可以照常使用，按住麦克风键就能对着微信输入法、豆包等说话。
 
-Windows 客户端位于 [`apps/windows/rc003`](apps/windows/rc003/README.md)，提供：
+设置只保存在这台电脑上。关掉设置窗口不会停止按键；不想再由 Remo 映射时，在连接页点「停止接管」。
 
-- WinRT BLE 连接与 ATVV 语音解码；
-- Windows Raw Input + Frida HID 旁路按键监听，SendInput 按键映射；
-- 语音输出到用户明确选择的音频端点（配合虚拟声卡供输入法识别）；
-- PySide6/Qt Quick 设置窗口、诊断和 PyInstaller/Inno Setup 构建。
+## 主要功能
 
-当前版本是**可构建、可自动化验证的源码/构建候选**：本工作树已完成协议、生命周期、
-UI/QML、日志降级、冻结包启动和桥接停止测试，但尚未在本工作树完成独立 RC003 真机
-验收。RC003 配对、13 个物理按键、ATVV 音频、VB-CABLE、输入法快捷键和长时间重连
-仍需在 Windows 真机上验证。产物未签名；CI 和自动构建不能替代真实硬件验收。
+**按键。** 遥控器上的键可以分别设置单击、双击和长按。默认是方向键、回车、退格、系统音量、显示桌面、上下文菜单、应用切换和 Esc。遥控器没有单独的静音键，静音只能自己加到某个键上。
 
-## 截图
+**语音。** 按住麦克风时，声音写进你选中的播放设备，通常是 VB-CABLE 的 CABLE Input。输入法再从 CABLE Output 收音。Remo 不改 Windows 的默认录音设备。
 
-![连接设置页](docs/screenshots/settings-connection.png)
+输入法有现成预设：
 
-![按键映射页](docs/screenshots/settings-buttons.png)
-
-> 截图用于说明界面结构；如与你的系统主题/分辨率不同属正常差异，不构成当前构建的
-> RC003 真机验收记录。
-
-## 下载与安装
-
-最新正式版：[v0.1.0-windows](https://github.com/miaomiaozii/windows-remote-mic-app/releases/tag/v0.1.0-windows)。
-
-从 Release 页面 Assets 下载，二选一：
-
-| 资产 | 适用场景 |
+| 输入法 | 按住麦克风时 |
 | --- | --- |
-| `RemoteMicRC003Setup-0.1.0-candidate-unsigned.exe` | 推荐，安装到开始菜单/桌面并创建快捷方式 |
-| `RemoteMicRC003-0.1.0-candidate-portable-unsigned.zip` | 免安装，解压到任意目录直接运行 |
+| 微信输入法 | 先左 Alt，再左 Win |
+| 豆包 | 右 Alt |
+| 千问 | 右 Ctrl |
+| 网易叭哥说 | 左 Alt |
 
-两个都未签名，Windows SmartScreen 会提示，点“更多信息 → 仍要运行”即可。
-建议同时下载 `SHA256SUMS.txt` 校验文件哈希。
+也可以改成自己的快捷键。语音链路中断时，Remo 会重新准备麦克风，不用每次手动重开。
 
-## 快速开始（安装版）
+**连接状态。** 右上角的绿色「已连接」表示遥控器的蓝牙链路是通的。已经配对但无线电没连上时，这里显示「已配对，遥控器未连接」，不会一直保持绿色。
 
-1. 下载 `RemoteMicRC003Setup-...exe` 并运行，一路“下一步”完成安装；
-2. 首次运行，或双击开始菜单的“Remote Mic 设置”，打开设置窗口（连接页）；
-3. 在 Windows 设置 → 蓝牙中把 RC003 遥控器与电脑配对；
-4. 回到设置窗口的“连接”页，选择当前 RC003 设备，再点“保存并启动桥接”；
-5. 按遥控器方向键/OK/返回/音量键验证；麦克风键会启动豆包输入法语音。
+**开机自启。** 在「权限」里，默认关闭。打开之后，登录 Windows 才会启动遥控器后台。
 
-详细配对、虚拟声卡配置、按键映射和故障排查见
-[`apps/windows/rc003/README.md`](apps/windows/rc003/README.md)。
+## 界面
 
-## 从源码本地运行
+窗口是浅色的。背景 `#f6f8fb`，卡片接近白色，圆角大约 21，文字用微软雅黑。左侧是 112 宽的导航，当前页用浅蓝底。蓝色 `#087cff` 只标当前页和主要按钮，绿色只表示已经连上或检查通过。
 
-在 Windows PowerShell 中执行：
+四个页面：
+
+- **连接。** 左边是遥控器，右边是接管、语音输出、输入法和最近 7 天的使用。
+- **按键。** 中间是遥控器照片，周围是每个键的单击、双击和长按。
+- **权限。** 同一区里还有「日志与诊断」：检查系统、蓝牙、虚拟声卡和语音输出是否就绪，并可以打开蓝牙设置或导出日志。日志里只有运行状态和按键名，没有录音。
+- **关于。** 版本、设备、音频通路和 GPL-3.0-only 许可。
+
+![连接页](docs/screenshots/connection.png)
+
+![按键页](docs/screenshots/buttons.png)
+
+![日志与诊断](docs/screenshots/diagnostics.png)
+
+## 代码
+
+| 目录 | 作用 |
+| --- | --- |
+| `apps/windows/rc003` | 设置窗口（Python、PySide6、Qt Quick） |
+| `apps/windows/remo-rust` | 按键和语音后台 `remo-daemon` |
+| `device-profiles/xiaomi-rc003.json` | RC003 的按键用途表 |
+
+## 本地运行
+
+需要 64 位 Windows 10 1809 或更高版本，以及已配对的 RC003。
 
 ```powershell
-Set-Location apps/windows/rc003
-py -3.12 -m venv .venv-build-312
-.\.venv-build-312\Scripts\python.exe -m pip install -r requirements-dev.txt
+Set-Location apps\windows\rc003
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 $env:PYTHONPATH = Join-Path (Get-Location) 'src'
-.\.venv-build-312\Scripts\python.exe -m ovb_rc003 --settings
+$env:QML_DISABLE_DISK_CACHE = '1'
+.\.venv\Scripts\python.exe -m ovb_rc003 --settings
 ```
 
-运行桥接（单独的桥接进程）：
+设置窗口会拉起 `remo-daemon`。要从源码单独编译后台：
 
 ```powershell
-.\.venv-build-312\Scripts\python.exe -m ovb_rc003 --bridge
+Set-Location apps\windows\remo-rust
+cargo build --release --bin remo-daemon
+.\target\release\remo-daemon.exe --backend ble --execute
 ```
 
-运行测试：
+在 Windows 里把遥控器配对好，在连接页把语音输出选成 CABLE Input，再按输入法的要求设好它自己的语音快捷键。
 
-```powershell
-.\.venv-build-312\Scripts\python.exe -u tools\run_test_suite.py
-```
+## 许可
 
-构建未签名候选版：
+代码以 [GPL-3.0-only](LICENSE.md) 发布。来源和第三方组件见 [COPYRIGHT.md](COPYRIGHT.md) 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-```powershell
-.\build\build-candidate.ps1
-```
-
-完整安装、配对、VB-CABLE 配置、已知限制和发布流程见 [`apps/windows/rc003/README.md`](apps/windows/rc003/README.md)。
-
-## 仓库来源
-
-- **Fork 自**：[`HD838A/remote-mic-app`](https://github.com/HD838A/remote-mic-app)（无线麦 Remote Mic：把小米蓝牙遥控器 2 Pro / RC003 变成 Mac 语音输入设备）。本仓库只保留并继续维护其中的 Windows RC003 部分，macOS/Swift 部分不在此仓库维护。
-- **Windows 上游参考实现**：[`nijez/open-voice-bridge`](https://github.com/nijez/open-voice-bridge)（GPL-3.0-only），提供 WinRT BLE、ATVV 语音协议、Raw Input、SendInput 和 Qt/QML 设置页的参考实现。
-- **RC003 HID 旁路参考**：[`xxb26553663-star/remote-bridge-hub`](https://github.com/xxb26553663-star/remote-bridge-hub)（GPL-3.0-only），提供用 Frida Gadget 读取 Windows 普通输入链路拿不到的 RC003 返回/音量 HID 报告的实现思路。
-
-Windows 实现的改动说明与第三方边界见
-[`apps/windows/rc003/ATTRIBUTION.md`](apps/windows/rc003/ATTRIBUTION.md)、
-[`COPYRIGHT.md`](COPYRIGHT.md) 和 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
-
-## 许可证
-
-代码按 `GPL-3.0-only` 发布。完整许可证见 [`LICENSE.md`](LICENSE.md)。
-
-## 维护边界
-
-- 主程序源码只在 `apps/windows/rc003`；
-- Windows CI 位于 `.github/workflows/windows-rc003-ci.yml`；
-- `device-profiles` 只保留 Windows 客户端使用的设备目录；
-- `LICENSE.md`、`COPYRIGHT.md`、`THIRD_PARTY_NOTICES.md` 和
-  [`apps/windows/rc003/ATTRIBUTION.md`](apps/windows/rc003/ATTRIBUTION.md) 保留 GPL
-  与上游来源义务，不代表继续维护原 macOS 应用。
+Windows 客户端改自 [open-voice-bridge](https://github.com/nijez/open-voice-bridge)。返回键和音量键的 HID 读取参考了 [remote-bridge-hub](https://github.com/xxb26553663-star/remote-bridge-hub)。VB-CABLE 是 VB-Audio 的独立软件，Remo 只在用户选中它时把声音写进去。

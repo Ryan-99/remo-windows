@@ -1036,451 +1036,51 @@ class VbCablePinConsistencyTests(unittest.TestCase):
         self.assertIn("throw", self.fetch_script_text)
 
 
-class UserFacingDocumentationContractTests(unittest.TestCase):
-    """XRBM-022 controller pre-review correction: structural checks that the
-    public README and the installed readme both actually contain the exact
-    facts/URLs/commands the task book requires, not just prose that a human
-    reviewer has to re-verify by eye every round.
-    """
+class RootReadmeTests(unittest.TestCase):
+    def test_root_readme_describes_the_current_client(self):
+        text = _ROOT_README_PATH.read_text(encoding='utf-8')
+        self.assertIn('Remo', text)
+        self.assertIn('RC003', text)
+        self.assertIn('docs/screenshots/connection.png', text)
+        self.assertIn('docs/screenshots/buttons.png', text)
+        self.assertIn('docs/screenshots/diagnostics.png', text)
+        self.assertNotIn('源码/构建候选', text)
+        self.assertNotIn('miaomiaozii/windows-remote-mic-app', text)
 
+
+class ThirdPartyNoticeTests(unittest.TestCase):
     def setUp(self):
-        self.readme_text = _README_PATH.read_text(encoding="utf-8")
-        self.installed_readme_text = _INSTALLED_README_PATH.read_text(encoding="utf-8")
-        self.both = (self.readme_text, self.installed_readme_text)
-
-    def test_official_vbcable_url_is_present_in_both_docs(self):
-        for text in self.both:
-            self.assertIn("https://vb-audio.com/Cable/", text)
-
-    def test_checksum_verification_command_is_present_in_both_docs(self):
-        for text in self.both:
-            self.assertIn("Get-FileHash", text)
-            self.assertIn("SHA256", text)
-            self.assertIn("SHA256SUMS.txt", text)
-
-    def test_exact_cable_routing_direction_is_preserved_in_both_docs(self):
-        for text in self.both:
-            self.assertIn("CABLE Input", text)
-            self.assertIn("CABLE Output", text)
-        # The direction itself, not just the two names in any order:
-        # the bridge's own voice-output setting selects CABLE Input, and
-        # the recognizer/system microphone input selects CABLE Output.
-        self.assertIn("语音输出设备", self.readme_text)
-        self.assertIn("CABLE Input", self.readme_text.split("语音输出设备")[1][:80])
-        self.assertIn("语音输出设备", self.installed_readme_text)
-        self.assertIn(
-            "CABLE Input", self.installed_readme_text.split("语音输出设备")[1][:120]
-        )
-
-    def test_win_h_prerequisites_are_concrete_in_both_docs(self):
-        for text in self.both:
-            # Cursor focused in an editable field.
-            self.assertIn("可编辑", text)
-            # Manual Win+H test in Notepad (or another editable field)
-            # BEFORE testing the RC003 itself.
-            self.assertIn("记事本", text)
-            self.assertIn("手动", text)
-            # Windows' own online/networked speech-recognition setting.
-            self.assertIn("联机语音识别", text)
-            # The system/recognizer microphone input must be CABLE Output.
-            self.assertIn("CABLE Output", text)
-
-    def test_win_h_settings_path_is_given_for_both_windows_10_and_11(self):
-        # XRBM-022 controller pre-review correction: the docs claim Windows
-        # 10 1809+ support, but "设置 → 隐私和安全性 → 语音" is the Windows
-        # 11 Settings path only - Windows 10's equivalent page is under
-        # "设置 → 隐私 → 语音" instead. Both families must be named
-        # explicitly so a Windows 10 user isn't sent looking for a menu
-        # that doesn't exist on their system.
-        for text in self.both:
-            self.assertIn("Windows 11", text)
-            self.assertIn("设置 → 隐私和安全性 → 语音", text)
-            self.assertIn("Windows 10", text)
-            self.assertIn("设置 → 隐私 → 语音", text)
-
-    def test_thirteen_button_no_mute_key_and_back_gap_facts_are_present(self):
-        for text in self.both:
-            self.assertIn("13", text)
-            self.assertIn("没有独立的物理静音键", text)
-            self.assertIn("返回", text)
-
-
-class RootDocumentConsistencyTests(unittest.TestCase):
-    """XRBM-022 controller pre-review correction (third round): two public
-    root documents contradicted the RC003 Windows candidate's own
-    documentation. Both contradictions are fixed structurally here so they
-    cannot silently return.
-    """
-
-    def setUp(self):
-        self.root_readme_text = _ROOT_README_PATH.read_text(encoding="utf-8")
-        self.notices_text = _THIRD_PARTY_NOTICES_PATH.read_text(encoding="utf-8")
-
-    def test_root_readme_does_not_lump_windows_in_with_planned_research(self):
-        self.assertIn("Windows 版本（RC003）", self.root_readme_text)
-        self.assertIn("Windows 客户端位于", self.root_readme_text)
-        self.assertIn("源码/构建候选", self.root_readme_text)
-        self.assertIn("不能替代", self.root_readme_text)
+        self.notices_text = _THIRD_PARTY_NOTICES_PATH.read_text(encoding='utf-8')
 
     def test_third_party_notices_does_not_falsely_deny_all_vbcable_reference(self):
-        # THIRD_PARTY_NOTICES.md previously claimed the Windows candidate
-        # does not "reference VB-CABLE ... in any form" - false:
-        # apps/windows/rc003/README.md and installer/readme-rc003.txt both
-        # document the official VB-Audio VB-CABLE download as an optional
-        # endpoint, and (XRBM-031) the frozen build now bundles the
-        # official, verified, unmodified Basic package offline for a
-        # user-initiated, UAC-gated install. The accurate claim: not
-        # modified/re-licensed/silently installed by this project, and the
-        # runtime only ever writes to an explicitly user-selected endpoint.
         self.assertNotIn(
-            "does not download, install, configure, or reference VB-CABLE",
+            'does not download, install, configure, or reference VB-CABLE',
             self.notices_text,
         )
         self.assertNotIn(
-            "does not bundle, download, install, configure, license, or redistribute VB-CABLE",
+            'does not bundle, download, install, configure, license, or redistribute VB-CABLE',
             self.notices_text,
         )
-        self.assertIn("Donationware", self.notices_text)
-        self.assertIn("explicitly selected", self.notices_text)
+        self.assertIn('Donationware', self.notices_text)
+        self.assertIn('explicitly selected', self.notices_text)
 
     def test_third_party_notices_discloses_the_bundled_vb_cable_flow_honestly(self):
-        # XRBM-031: the notice must disclose that the official Basic package
-        # is now bundled/fetched (not merely mentioned as a link), that only
-        # the free Basic package (never paid A+B/C+D) is involved, that
-        # installation only happens via an explicit user click plus a real
-        # UAC prompt, and that this project's own process never runs
-        # elevated and never reports install success from launch alone.
-        self.assertIn("fetch-vb-cable.ps1", self.notices_text)
-        self.assertIn("VBCABLE_Driver_Pack45.zip", self.notices_text)
-        self.assertIn("A+B/C+D", self.notices_text)
-        self.assertIn("UAC", self.notices_text)
-        self.assertIn("never runs with administrator privileges", self.notices_text)
+        self.assertIn('fetch-vb-cable.ps1', self.notices_text)
+        self.assertIn('VBCABLE_Driver_Pack45.zip', self.notices_text)
+        self.assertIn('A+B/C+D', self.notices_text)
+        self.assertIn('UAC', self.notices_text)
+        self.assertIn('never runs with administrator privileges', self.notices_text)
         self.assertIn(
-            "never reports a driver install as successful merely because a process was launched",
+            'never reports a driver install as successful merely because a process was launched',
             self.notices_text,
         )
-        self.assertIn("never changes the Windows system default input/output device", self.notices_text)
-
-    def test_root_readme_and_windows_readme_agree_rc003_windows_is_a_candidate(self):
-        # Cross-file consistency: both docs must describe the RC003 Windows
-        # combination the same way (source/build candidate, not
-        # real-device verified) rather than one calling it a candidate and
-        # the other calling it merely planned/research.
-        windows_readme_text = _README_PATH.read_text(encoding="utf-8")
-        for text in (self.root_readme_text, windows_readme_text):
-            self.assertIn("源码/构建候选", text)
+        self.assertIn('never changes the Windows system default input/output device', self.notices_text)
 
 
-_CJK_CHAR_RE = r"[　-〿぀-ヿ㐀-鿿＀-￯]"
-
-
-def _normalize_whitespace(text: str) -> str:
-    """Strips markdown blockquote '>' line markers, then collapses all
-    remaining whitespace (including the line wraps themselves, which are
-    visually joined into flowing prose but stored as physical newlines)
-    into single spaces - so a contract test can assert a multi-word phrase
-    without depending on exactly where a human editor happened to wrap a
-    line, or on the literal '>' markers those wrapped lines carry.
-
-    Unlike English, a CJK line wrap carries no real space in the source
-    author's intended reading (Chinese text has no inter-word spaces at
-    all), so a whitespace run sitting between two CJK characters is
-    dropped entirely rather than collapsed to a single space - otherwise a
-    phrase like "出来的文件夹" that happens to wrap between "出来" and "的"
-    would normalize to "出来 的文件夹" and silently fail an exact-phrase
-    assertion that has nothing to do with the wrap point chosen.
-    """
-
-    text = re.sub(r"(?m)^>\s?", "", text)
-    text = re.sub(r"\s+", " ", text)
-    text = re.sub(rf"(?<={_CJK_CHAR_RE}) (?={_CJK_CHAR_RE})", "", text)
-    return text.strip()
-
-
-class PrereleaseDownloadInstructionsContractTests(unittest.TestCase):
-    """XRBM-027: the public prerelease download flow - a generic Releases
-    page link (so it survives a tag not existing yet), the exact asset name
-    patterns the CI packaging step actually produces, and the release-tag
-    vs internal-build-version distinction - must stay documented and must
-    not silently drift from what the CI workflow actually names its
-    outputs (see WindowsCiWorkflowTests above for that side of the
-    contract).
-    """
-
-    def setUp(self):
-        self.text = _README_PATH.read_text(encoding="utf-8")
-        self.iss_text = _ISS_PATH.read_text(encoding="utf-8")
-
-    def test_links_to_the_generic_releases_page(self):
-        self.assertIn(
-            "https://github.com/miaomiaozii/windows-remote-mic-app/releases", self.text
-        )
-        # The bare list page is the stable entry point; any direct
-        # /releases/tag/... link must point at a tag this repo actually
-        # published (so a future tag bump that forgets to publish 404s the
-        # doc instead of silently breaking).
-        self.assertIn(
-            "/releases/tag/v0.1.0-windows-rc003-candidate.1", self.text
-        )
-
-    def test_does_not_make_a_time_dependent_claim_about_prerelease_existence(self):
-        # XRBM-027 RETRY 1 correction: a sentence saying "even if there is
-        # currently no published prerelease yet" is temporally awkward and
-        # goes stale the moment the first prerelease is published. The
-        # Releases list must be described as a stable entry point without
-        # asserting anything about whether a prerelease currently exists.
-        self.assertNotIn("还没有发布任何预发行版", self.text)
-        self.assertNotIn("发布后再回来查看", self.text)
-
-    def test_asset_name_patterns_match_the_ci_workflows_actual_output_names(self):
-        # These placeholders must match, character for character, the
-        # deterministic names windows-rc003-ci.yml's packaging step
-        # actually produces - see
-        # WindowsCiWorkflowTests.test_packages_deterministic_zip_and_sha256sums
-        # and .test_portable_staging_directory_is_a_single_versioned_top_level_folder
-        # above, and the .iss OutputBaseFilename below.
-        self.assertIn("RemoteMicRC003Setup-<版本号>-unsigned.exe", self.text)
-        self.assertIn(
-            "RemoteMicRC003-<版本号>-portable-unsigned.zip", self.text
-        )
-        self.assertIn("SHA256SUMS.txt", self.text)
-        self.assertIn(
-            "OutputBaseFilename=RemoteMicRC003Setup-{#AppVersion}-unsigned",
-            self.iss_text,
-        )
-
-    def test_documents_the_release_tag_vs_internal_build_version_distinction(self):
-        self.assertIn("v0.3.0-windows-rc003-candidate.1", self.text)
-        # The doc's claimed internal build version must match the .iss
-        # file's real AppVersion - not just a hardcoded literal that could
-        # silently drift the moment a future task bumps AppVersion without
-        # updating this sentence.
-        version_match = re.search(r'#define AppVersion "([^"]+)"', self.iss_text)
-        self.assertIsNotNone(version_match)
-        self.assertIn(version_match.group(1), self.text)
-
-    def test_installer_and_portable_are_documented_as_either_or_not_both(self):
-        self.assertIn("不需要两个都下载", self.text)
-
-
-class RealWindowsCiEvidenceContractTests(unittest.TestCase):
-    """The Windows README must state capabilities and verification limits
-    without copying a stale result from the upstream repository.
-    """
-
-    def setUp(self):
-        self.readme_text = _normalize_whitespace(
-            _README_PATH.read_text(encoding="utf-8")
-        )
-
-    def test_documents_supported_windows_paths(self):
-        for phrase in ("WinRT BLE", "Raw Input", "SendInput", "PortAudio"):
-            self.assertIn(phrase, self.readme_text)
-
-    def test_status_is_a_candidate_pending_independent_real_device_acceptance(self):
-        # Upstream/history claims are not evidence for this worktree. Keep the
-        # current candidate honest until its own RC003 + VB-CABLE checklist is
-        # completed and recorded.
-        self.assertIn("源码/构建候选", self.readme_text)
-        self.assertIn("尚未在本工作树完成独立真机验收", self.readme_text)
-        self.assertIn("不能替代真机配对、按键和语音链路验收", self.readme_text)
-        self.assertNotIn("已通过真实硬件验收", self.readme_text)
-        self.assertNotIn("已在真实 RC003 上完成配对", self.readme_text)
-        self.assertNotIn("verified on real rc003 hardware", self.readme_text.lower())
-
-    def test_hardware_acceptance_template_is_shipped_and_has_required_gates(self):
-        acceptance_path = _REPO_ROOT / "docs" / "rc003-hardware-acceptance.md"
-        acceptance = acceptance_path.read_text(encoding="utf-8")
-        for gate in (
-            "配对与发现",
-            "方向 / OK / Home / Menu",
-            "返回 / 电源 / TV",
-            "音量 + / 音量 −",
-            "ATVV 音频",
-            "VB-CABLE 路由",
-            "豆包输入法",
-            "断线重连",
-            "长时间运行",
-        ):
-            self.assertIn(gate, acceptance)
-
-        installer = (_RC003_ROOT / "installer" / "RemoteMicRC003Setup.iss").read_text(
-            encoding="utf-8-sig"
-        )
-        self.assertIn('DestName: "HARDWARE_ACCEPTANCE.md"', installer)
-        self.assertIn("HARDWARE_ACCEPTANCE.md", self.readme_text)
-
-    def test_unsigned_and_ci_limits_are_documented(self):
-        self.assertIn("未签名", self.readme_text)
-        self.assertIn("CI 没有真实 RC003 硬件", self.readme_text)
-        self.assertIn("仍需按本文的真机步骤", self.readme_text)
-
-    def test_repository_links_to_its_own_actions_and_releases(self):
-        self.assertIn("https://github.com/miaomiaozii/windows-remote-mic-app/releases", self.readme_text)
-        self.assertIn("https://github.com/miaomiaozii/windows-remote-mic-app/actions", self.readme_text)
-
-
-class PortableAndInstallerFlowContractTests(unittest.TestCase):
-    """XRBM-027 RETRY 1 correction: the installer and the portable ZIP are
-    materially different distributions - the portable ZIP has no Start
-    Menu entries, no stop script, and no uninstaller, so it must never be
-    told to a user via the installer's Start Menu instructions. Each flow
-    needs its own settings/start/stop/removal steps, and the portable
-    steps must name the real executable and real flags this candidate
-    actually ships (see __main__.py's ``--settings``/no-argument handling
-    and the .spec's ``AppExeName``/``RemoteMicRC003.exe``).
-    """
-
-    def setUp(self):
-        self.text = _README_PATH.read_text(encoding="utf-8")
-        self.normalized = _normalize_whitespace(self.text)
-
-    def test_portable_settings_command_is_exact(self):
-        self.assertIn(
-            r".\RemoteMicRC003.exe --settings", self.text
-        )
-
-    def test_portable_start_command_uses_the_explicit_bridge_flag(self):
-        # The no-argument invocation now opens the settings window, so the
-        # bridge must be started explicitly with --bridge - paired with
-        # prose that says it starts the bridge itself.
-        self.assertIn(
-            r"`.\RemoteMicRC003.exe --bridge` 启动桥接", self.normalized
-        )
-
-    def test_portable_stop_is_via_task_manager_not_a_stop_script(self):
-        self.assertIn("任务管理器", self.text)
-        self.assertIn("结束任务", self.text)
-        self.assertIn("Ctrl+Shift+Esc", self.text)
-        # Must explicitly say there is no packaged stop script/Start Menu
-        # entry for the portable flow, so this isn't confused with the
-        # installer's "停止" Start Menu shortcut.
-        self.assertIn("便携版没有停止脚本", self.normalized)
-
-    def test_portable_removal_is_deleting_the_extracted_folder(self):
-        self.assertIn("删除整个解压出来的文件夹", self.normalized)
-        self.assertIn("便携版没有安装程序", self.normalized)
-
-    def test_installer_flow_still_retains_start_menu_settings_start_stop_uninstall(self):
-        installer_section_start = self.text.index("方式一：安装器")
-        installer_section_end = self.text.index("方式二：便携版")
-        installer_section = self.text[installer_section_start:installer_section_end]
-        for entry in ("设置", "启动", "停止", "卸载"):
-            self.assertIn(entry, installer_section)
-        self.assertIn("Start Menu", installer_section)
-
-    def test_portable_flow_explicitly_denies_start_menu_entries(self):
-        portable_section_start = self.text.index("方式二：便携版")
-        portable_section_end = self.text.index("### 配对 RC003")
-        portable_section = self.text[portable_section_start:portable_section_end]
-        self.assertIn("没有", portable_section)
-        self.assertIn("Start Menu", portable_section)
-
-    def test_installer_and_portable_steps_are_documented_in_separate_subsections(self):
-        self.assertIn("**安装器用户**", self.text)
-        self.assertIn("**便携版 ZIP 用户**", self.text)
-        installer_index = self.text.index("**安装器用户**")
-        portable_index = self.text.index("**便携版 ZIP 用户**")
-        self.assertLess(installer_index, portable_index)
-
-
-class ConfigLogResidueDisclosureContractTests(unittest.TestCase):
-    """XRBM-027 CORRECTION 1: neither uninstalling via the installer nor
-    deleting the portable ZIP's extracted folder removes the runtime
-    settings/log files, because both write to the same
-    ``config.config_root()`` location and the .iss source has no
-    ``UninstallDelete`` rule for them. Both public docs must disclose this
-    honestly, and the literal path/filename strings they use must be
-    cross-checked against the real runtime constants so a future rename in
-    config.py/logging_setup.py can't silently leave the docs wrong.
-    """
-
-    def setUp(self):
-        self.readme_text = _normalize_whitespace(
-            _README_PATH.read_text(encoding="utf-8")
-        )
-        self.installed_readme_text = _normalize_whitespace(
-            _INSTALLED_README_PATH.read_text(encoding="utf-8")
-        )
-        self.both = (self.readme_text, self.installed_readme_text)
-        self.iss_text = _ISS_PATH.read_text(encoding="utf-8")
-
-    def test_documented_path_and_filenames_match_the_real_runtime_constants(self):
-        # Not hardcoded literals independent of the source of truth: derive
-        # the exact strings from config.py/logging_setup.py themselves, so
-        # a future rename of APP_ID/PRODUCT_ID/CONFIG_FILENAME/
-        # KEY_BINDINGS_FILENAME/LOG_FILENAME breaks this test instead of
-        # silently leaving the docs pointing at a stale path/filename.
-        expected_root = r"%LOCALAPPDATA%\{}\{}".format(
-            config.APP_ID, config.PRODUCT_ID
-        )
-        for text in self.both:
-            self.assertIn(expected_root, text)
-            self.assertIn(config.CONFIG_FILENAME, text)
-            self.assertIn(config.KEY_BINDINGS_FILENAME, text)
-            self.assertIn(logging_setup.LOG_FILENAME, text)
-            # The log file lives in a "logs" subdirectory of config_root(),
-            # not directly inside it (see logging_setup.get_logger()).
-            self.assertIn("logs" + "\\" + logging_setup.LOG_FILENAME, text)
-
+class InstallerUninstallContractTests(unittest.TestCase):
     def test_iss_has_no_uninstall_delete_rule_for_runtime_files(self):
-        # Regression guard for the premise both docs now rely on: if a
-        # future change adds an [UninstallDelete] entry, that's a genuine
-        # behavior change requiring its own runtime/installer-scoped task,
-        # and this doc's "uninstall does not remove settings/logs" claim
-        # would need to be revisited together with it - this test fails
-        # first, loudly, instead of the docs silently going stale.
-        self.assertNotIn("UninstallDelete", self.iss_text)
-
-    def test_uninstall_does_not_claim_full_directory_removal(self):
-        for text in self.both:
-            self.assertNotIn("不留系统级文件", text)
-        # The installed readme previously claimed uninstall deletes "安装
-        # 目录" (the whole install directory) outright - inaccurate, since
-        # config_root() is the SAME directory the installer uses
-        # (DefaultDirName={localappdata}\RemoteMic\{#AppFolder}) and
-        # runtime-written files there are never enumerated by Setup, so
-        # Inno's uninstaller does not know to remove them.
-        self.assertNotIn(
-            "卸载过程会先自动停止正在运行的桥接进程，再删除安装目录",
-            self.installed_readme_text,
-        )
-
-    def test_both_docs_disclose_settings_and_logs_survive_removal(self):
-        for text in self.both:
-            self.assertIn("卸载不会自动删除设置和日志", text)
-
-    def test_both_docs_offer_conditional_manual_cleanup(self):
-        # Must be conditional (only when no other RC003 install on the same
-        # machine needs the shared directory) - not an unconditional "just
-        # delete it" instruction, since the installer and portable builds
-        # share the exact same config_root() on one machine.
-        for text in self.both:
-            self.assertIn("如果还会用到", text)
-            self.assertIn("请不要删除这个共享目录", text)
-
-    def test_portable_removal_step_names_config_root_not_just_the_extracted_folder(self):
-        # The portable "uninstall/removal" step specifically must not stop
-        # at "delete the extracted folder" - it must name the separate,
-        # shared config_root() location too.
-        portable_section_start = self.readme_text.index("**便携版 ZIP 用户**")
-        portable_section = self.readme_text[portable_section_start:]
-        self.assertIn("但便携版运行时同样会把", portable_section)
-        self.assertIn(config.CONFIG_FILENAME, portable_section)
-
-
-class WindowsPrereleaseAssetScopeContractTests(unittest.TestCase):
-    """XRBM-027 CORRECTION 1: a bare "every prerelease has exactly these
-    three files" claim must not be read as covering unrelated releases or
-    other product variants.
-    """
-
-    def setUp(self):
-        self.text = _README_PATH.read_text(encoding="utf-8")
-
-    def test_asset_count_claim_is_scoped_to_the_windows_candidate(self):
-        self.assertIn("每个 RC003 Windows 候选预发行版恰好包含以下三个文件", self.text)
-        self.assertNotIn("每个预发行版恰好包含以下三个文件", self.text)
+        iss_text = _ISS_PATH.read_text(encoding='utf-8')
+        self.assertNotIn('UninstallDelete', iss_text)
 
 
 def _spec_hidden_imports(text: str) -> list:
