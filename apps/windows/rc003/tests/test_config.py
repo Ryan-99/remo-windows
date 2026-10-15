@@ -25,7 +25,8 @@ class ConfigRootTests(unittest.TestCase):
 class DefaultConfigPrivacyTests(unittest.TestCase):
     def test_default_config_preserves_existing_users_on_rc003(self):
         self.assertEqual(config.default_config()["selected_device_profile"], "xiaomi-rc003")
-        self.assertEqual(config.default_config()["voice_hotkey"], "ralt+space")
+        self.assertEqual(config.default_config()["voice_hotkey"], "ralt")
+        self.assertEqual(config.default_config()["voice_trigger_mode"], "hold")
         self.assertEqual(config.default_config()["gain_db"], 10.0)
 
     def test_default_config_contains_no_forbidden_identity_fields(self):
@@ -51,7 +52,7 @@ class DefaultConfigPrivacyTests(unittest.TestCase):
             loaded = config.load_config(path)
         self.assertEqual(loaded["voice_output_backend"], "sendinput")
 
-    def test_load_repairs_a_stale_toggle_right_alt_pair(self):
+    def test_load_drops_a_saved_tap_mode_and_keeps_the_hold_chord(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
             path.write_text(
@@ -59,7 +60,8 @@ class DefaultConfigPrivacyTests(unittest.TestCase):
                 encoding="utf-8",
             )
             loaded = config.load_config(path)
-        self.assertEqual(loaded["voice_hotkey"], "ralt+space")
+        self.assertEqual(loaded["voice_trigger_mode"], "hold")
+        self.assertEqual(loaded["voice_hotkey"], "ralt")
 
     def test_save_repairs_a_stale_hold_right_alt_space_pair(self):
         with tempfile.TemporaryDirectory() as tmp:

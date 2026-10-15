@@ -92,7 +92,7 @@ _PRESET_KEY_COMBOS = (
 
 _TRIGGER_MODE_LABELS = {
     key_mapping.VoiceTriggerMode.TOGGLE: "免按住（右 Alt + 空格）",
-    key_mapping.VoiceTriggerMode.HOLD: "长按（右 Alt）",
+    key_mapping.VoiceTriggerMode.HOLD: "按住",
     key_mapping.VoiceTriggerMode.TOGGLE_INPUT: "点按 Ctrl + Win / 按住左 Alt",
 }
 
@@ -364,7 +364,7 @@ def default_display_state() -> DefaultDisplayState:
         button_display_map=button_display_map,
         secondary_display_map=secondary_display_map,
         hotkey_text=hotkey.DEFAULT_VOICE_HOTKEY.serialize(),
-        trigger_mode_label=_TRIGGER_MODE_LABELS[key_mapping.VoiceTriggerMode.TOGGLE],
+        trigger_mode_label=_TRIGGER_MODE_LABELS[key_mapping.VoiceTriggerMode.HOLD],
     )
 
 

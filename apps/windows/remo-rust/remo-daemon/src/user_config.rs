@@ -102,12 +102,8 @@ fn default_mapping() -> Mapping {
 }
 
 fn hold_chord(path: &Path) -> Vec<String> {
-    if read_voice_mode(path) != "hold" {
-        let sustain = read_hotkey_field(path, "voice_hold_hotkey");
-        if !sustain.is_empty() {
-            return sustain;
-        }
-    }
+    // Tap-once voice mode is retired. Whatever chord is saved is held for
+    // the whole utterance; a leftover toggle mode does not select another key.
     read_voice_hotkey(path)
 }
 
@@ -119,19 +115,6 @@ fn read_voice_hotkey(path: &Path) -> Vec<String> {
         return vec!["lctrl".into(), "win".into()];
     };
     split_hotkey(value["voice_hotkey"].as_str().unwrap_or("lctrl+win"))
-}
-
-fn read_voice_mode(path: &Path) -> String {
-    read_config(path)
-        .and_then(|value| value["voice_trigger_mode"].as_str().map(str::to_string))
-        .filter(|value| matches!(value.as_str(), "hold" | "toggle" | "toggle_input"))
-        .unwrap_or_else(|| "hold".into())
-}
-
-fn read_hotkey_field(path: &Path, key: &str) -> Vec<String> {
-    read_config(path)
-        .and_then(|value| value[key].as_str().map(split_hotkey))
-        .unwrap_or_default()
 }
 
 fn split_hotkey(text: &str) -> Vec<String> {

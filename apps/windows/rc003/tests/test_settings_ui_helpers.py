@@ -208,13 +208,13 @@ class BuildSaveModelTests(unittest.TestCase):
         new_config, new_bindings = build_save_model(
             button_display_map=defaults.button_display_map,
             hotkey_text=defaults.hotkey_text,
-            trigger_mode=key_mapping.VoiceTriggerMode.TOGGLE,
+            trigger_mode=key_mapping.VoiceTriggerMode.HOLD,
             endpoint_display_text="",
             base_config=self.base_config,
             base_bindings=self.base_bindings,
         )
         self.assertEqual(new_bindings["bindings"]["mic"]["kind"], "voice")
-        self.assertEqual(new_config["voice_hotkey"], "ralt+space")
+        self.assertEqual(new_config["voice_hotkey"], "ralt")
 
     def test_invalid_hotkey_raises_with_no_button_id(self):
         with self.assertRaises(SettingsValidationError) as ctx:
@@ -366,7 +366,7 @@ class DefaultDisplayStateTests(unittest.TestCase):
 
     def test_trigger_mode_defaults_to_toggle_label(self):
         state = default_display_state()
-        self.assertIn("免按住", state.trigger_mode_label)
+        self.assertIn("按住", state.trigger_mode_label)
 
 
 class DescribeLaunchResultTests(unittest.TestCase):

@@ -697,7 +697,7 @@ def _load_qt_classes() -> dict:
         updateVersionChanged = Signal()
         _updateResult = Signal(object)
 
-        _TRIGGER_MODE_ORDER = tuple(key_mapping.VoiceTriggerMode)
+        _TRIGGER_MODE_ORDER = (key_mapping.VoiceTriggerMode.HOLD,)
         # The current release exposes one supported device. Keep other
         # catalog profiles available to the backend for a future adapter, but
         # never let a hidden profile occupy a ComboBox index.
@@ -719,9 +719,14 @@ def _load_qt_classes() -> dict:
             self._voice_hold_hotkey_text = self._config.get(
                 "voice_hold_hotkey", ""
             ) or "lalt"
-            saved_trigger_mode = key_mapping.VoiceTriggerMode(
-                self._config.get("voice_trigger_mode", "toggle")
-            )
+            saved_trigger_mode = key_mapping.VoiceTriggerMode.HOLD
+            raw_mode = str(self._config.get("voice_trigger_mode", "hold"))
+            try:
+                parsed_mode = key_mapping.VoiceTriggerMode(raw_mode)
+            except ValueError:
+                parsed_mode = key_mapping.VoiceTriggerMode.HOLD
+            if parsed_mode in self._TRIGGER_MODE_ORDER:
+                saved_trigger_mode = parsed_mode
             self._trigger_mode_index = self._TRIGGER_MODE_ORDER.index(saved_trigger_mode)
             saved_preset = str(self._config.get("voice_input_preset", "custom"))
             if saved_preset == "doubao_hands_free":
@@ -982,7 +987,7 @@ def _load_qt_classes() -> dict:
             """Forward a hook-thread result to QML on the GUI thread."""
 
             inferred_mode = key_mapping.voice_trigger_mode_for_hotkey(chord)
-            if inferred_mode is not None:
+            if inferred_mode in self._TRIGGER_MODE_ORDER:
                 self._set_trigger_mode_preserving_hotkey(inferred_mode)
             self.hotkeyCaptured.emit(chord)
 

@@ -92,9 +92,9 @@ def default_config() -> Dict[str, Any]:
         "max_retry_delay": 30.0,
         "voice_shortcut_enabled": True,
         "voice_hotkey": key_mapping.voice_hotkey_for_trigger_mode(
-            key_mapping.VoiceTriggerMode.TOGGLE
+            key_mapping.VoiceTriggerMode.HOLD
         ),
-        "voice_trigger_mode": "toggle",
+        "voice_trigger_mode": "hold",
         "voice_hold_hotkey": "",
         # Identifies an explicitly selected input-method preset.  This is
         # intentionally separate from the hotkey: the same Ctrl+Win chord is
@@ -221,11 +221,12 @@ def save_config(path: Path, config: Dict[str, Any]) -> None:
 
 
 def _normalize_voice_hotkey(config: Dict[str, Any]) -> None:
-    """Keep the two built-in voice modes paired with their real shortcuts.
+    """Voice input is hold-only.
 
-    Legacy built-in values are repaired, and a recorded built-in chord also
-    restores its required mode if the UI previously saved the two fields out
-    of sync. A user-supplied shortcut such as ``win+h`` remains untouched.
+    A saved tap mode (``toggle`` / ``toggle_input``) or the old tap chord
+    ``ralt+space`` is folded into hold. Named input-method presets keep
+    their own hold chord. A custom chord such as ``win+h`` is kept and
+    held for the whole utterance.
     """
 
     current = str(config.get("voice_hotkey", "")).strip().lower()
@@ -251,36 +252,10 @@ def _normalize_voice_hotkey(config: Dict[str, Any]) -> None:
         config["voice_hold_hotkey"] = ""
         return
 
-    if current == "lalt":
-        return
-
-    # Older builds stored the generic hold chord as Ctrl+Win, sometimes
-    # still tagged as toggle. That chord is not a custom shortcut: fold it
-    # into the current hold preset.
-    if current in {"lctrl+win", "lctrl+lwin"}:
-        config["voice_trigger_mode"] = key_mapping.VoiceTriggerMode.HOLD.value
+    config["voice_trigger_mode"] = key_mapping.VoiceTriggerMode.HOLD.value
+    config["voice_hold_hotkey"] = ""
+    if current in {"lctrl+win", "lctrl+lwin", "ralt+space"}:
         config["voice_hotkey"] = "ralt"
-        config["voice_hold_hotkey"] = ""
-        return
-
-    try:
-        mode = key_mapping.VoiceTriggerMode(config.get("voice_trigger_mode"))
-    except ValueError:
-        mode = None
-
-    if mode == key_mapping.VoiceTriggerMode.TOGGLE_INPUT:
-        config["voice_trigger_mode"] = key_mapping.VoiceTriggerMode.HOLD.value
-        mode = key_mapping.VoiceTriggerMode.HOLD
-
-    if current not in key_mapping.LEGACY_VOICE_HOTKEYS:
-        inferred_mode = key_mapping.voice_trigger_mode_for_hotkey(current)
-        if inferred_mode is not None:
-            config["voice_trigger_mode"] = inferred_mode.value
-        return
-
-    if mode is None:
-        return
-    config["voice_hotkey"] = key_mapping.voice_hotkey_for_trigger_mode(mode)
 
 
 def default_key_bindings() -> Dict[str, Any]:

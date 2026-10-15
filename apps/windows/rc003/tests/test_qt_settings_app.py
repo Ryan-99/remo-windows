@@ -362,7 +362,7 @@ class SettingsControllerTests(unittest.TestCase):
 
     def test_hotkey_text_defaults_to_the_configured_default(self):
         controller, _ = self._make_controller()
-        self.assertEqual(controller.hotkeyText, "ralt+space")
+        self.assertEqual(controller.hotkeyText, "ralt")
 
     def test_first_use_selects_cable_and_save_persists_it(self):
         from ovb_rc003.audio_output import AudioEndpoint
@@ -386,16 +386,14 @@ class SettingsControllerTests(unittest.TestCase):
             controller, _ = self._make_controller()
             self.assertEqual(controller.selectedEndpointIndex, -1)
 
-    def test_trigger_mode_options_includes_toggle_input(self):
+    def test_trigger_mode_options_are_hold_only(self):
         controller, _ = self._make_controller()
-        self.assertEqual(len(controller.triggerModeOptions), 3)
+        self.assertEqual(controller.triggerModeOptions, ["按住"])
 
-    def test_trigger_mode_switch_also_switches_the_paired_voice_hotkey(self):
+    def test_trigger_mode_switch_keeps_the_hold_chord(self):
         controller, _ = self._make_controller()
-        controller.triggerModeIndex = 1
-        self.assertEqual(controller.hotkeyText, "ralt")
         controller.triggerModeIndex = 0
-        self.assertEqual(controller.hotkeyText, "ralt+space")
+        self.assertEqual(controller.hotkeyText, "ralt")
 
     def test_voice_input_presets_persist_their_chord_mode_and_identity(self):
         controller, _ = self._make_controller()
@@ -436,7 +434,7 @@ class SettingsControllerTests(unittest.TestCase):
     def test_recording_left_ctrl_win_switches_to_hold_without_replacing_capture(self):
         controller, _ = self._make_controller()
         controller._on_hotkey_capture_result("lctrl+lwin")
-        self.assertEqual(controller.triggerModeIndex, 1)
+        self.assertEqual(controller.triggerModeIndex, 0)
         controller.hotkeyText = "lctrl+lwin"
         self.assertEqual(controller.hotkeyText, "lctrl+lwin")
 
