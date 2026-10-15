@@ -251,17 +251,15 @@ def _normalize_voice_hotkey(config: Dict[str, Any]) -> None:
         config["voice_hold_hotkey"] = ""
         return
 
-    if preset == "custom" and str(config.get("voice_trigger_mode") or "") == "hold":
-        config["voice_hold_hotkey"] = ""
+    if current == "lalt":
         return
 
-    if str(config.get("voice_trigger_mode") or "") in {"toggle", "toggle_input"}:
+    # Older builds stored the generic hold chord as Ctrl+Win, sometimes
+    # still tagged as toggle. That chord is not a custom shortcut: fold it
+    # into the current hold preset.
+    if current in {"lctrl+win", "lctrl+lwin"}:
         config["voice_trigger_mode"] = key_mapping.VoiceTriggerMode.HOLD.value
-        held = str(config.get("voice_hold_hotkey") or "").strip().lower()
-        if held:
-            config["voice_hotkey"] = held
-        elif current in {"lctrl+win", "lctrl+lwin", "ralt+space"}:
-            config["voice_hotkey"] = "ralt"
+        config["voice_hotkey"] = "ralt"
         config["voice_hold_hotkey"] = ""
         return
 
@@ -270,8 +268,9 @@ def _normalize_voice_hotkey(config: Dict[str, Any]) -> None:
     except ValueError:
         mode = None
 
-    if current == "lalt":
-        return
+    if mode == key_mapping.VoiceTriggerMode.TOGGLE_INPUT:
+        config["voice_trigger_mode"] = key_mapping.VoiceTriggerMode.HOLD.value
+        mode = key_mapping.VoiceTriggerMode.HOLD
 
     if current not in key_mapping.LEGACY_VOICE_HOTKEYS:
         inferred_mode = key_mapping.voice_trigger_mode_for_hotkey(current)
