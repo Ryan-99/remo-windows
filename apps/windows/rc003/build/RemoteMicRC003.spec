@@ -236,7 +236,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
-    uac_admin=True,
+    uac_admin=False,
 )
 
 coll = COLLECT(

@@ -91,7 +91,11 @@ Item {
                     Label {
                         id: statusText
                         anchors.centerIn: parent
-                        text: (SettingsController.bridgeRuntimeState === "connected" || SettingsController.bridgeRuntimeState === "voice_active" ? qsTr("● 已连接") : "● " + SettingsController.bridgeRuntimeStatusText)
+                        text: SettingsController.bridgeRuntimeState === "connected"
+                            ? qsTr("● 已连接")
+                            : SettingsController.bridgeRuntimeState === "voice_active"
+                                ? qsTr("● 正在接收语音")
+                                : ("● " + SettingsController.bridgeRuntimeStatusText)
                         color: SettingsController.bridgeRuntimeState === "connected" || SettingsController.bridgeRuntimeState === "voice_active" ? "#208f5c" : SettingsController.bridgeRuntimeState === "error" ? tokens.errorColor : tokens.textSecondary
                         font.pixelSize: tokens.fontSizeSmall
                     }

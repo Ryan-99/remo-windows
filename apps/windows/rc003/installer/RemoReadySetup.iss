@@ -4,9 +4,8 @@
 
 #define AppName "Remo"
 #define AppPublisher "Remo contributors"
-#define AppVersion "0.1.0"
+#define AppVersion "0.1.4"
 #define AppExeName "RemoteMicRC003.exe"
-#define AppFolder "RC003"
 #ifndef DistDir
   #define DistDir "..\dist\RemoteMicRC003"
 #endif
@@ -17,7 +16,7 @@ AppId={{B6E8B6F0-7B9B-4B7C-9E7E-3B7B2C6B0F5C}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\Remo\{#AppFolder}
+DefaultDirName={autopf}\Remo
 DefaultGroupName=Remo
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
@@ -37,6 +36,7 @@ UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExeName}
 CloseApplications=yes
 RestartApplications=no
+DisableFinishedPage=yes
 
 [Files]
 Source: "{#DistDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
@@ -53,10 +53,9 @@ Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Parameters: "--sett
 Name: "{group}\停止 {#AppName}"; Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\stop-app.ps1"" -AppPath ""{app}"""; WorkingDir: "{app}"; Flags: runminimized
 Name: "{group}\卸载 {#AppName}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Parameters: "--settings"
-Name: "{commonstartup}\{#AppName}"; Filename: "{app}\remo-daemon.exe"; Parameters: "--backend ble --execute"; WorkingDir: "{app}"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\finish-setup.ps1"" -AppPath ""{app}"""; StatusMsg: "正在安装虚拟键盘和虚拟声卡..."; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\finish-setup.ps1"" -AppPath ""{app}"""; StatusMsg: "正在安装虚拟键盘和虚拟声卡..."; Flags: runhidden waituntilterminated
 Filename: "{app}\remo-daemon.exe"; Parameters: "--backend ble --execute"; WorkingDir: "{app}"; Flags: nowait runhidden
 Filename: "{app}\{#AppExeName}"; Parameters: "--settings"; Description: "打开 Remo 设置"; Flags: postinstall nowait
 
@@ -64,6 +63,65 @@ Filename: "{app}\{#AppExeName}"; Parameters: "--settings"; Description: "打开 
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\stop-app.ps1"" -AppPath ""{app}"""; Flags: runhidden
 
 [Code]
+const
+  TOKEN_QUERY = $0008;
+  TokenElevationClass = 20;
+
+function OpenProcessToken(ProcessHandle: THandle; DesiredAccess: DWORD; var TokenHandle: THandle): BOOL;
+  external 'OpenProcessToken@advapi32.dll stdcall';
+function GetTokenInformation(TokenHandle: THandle; TokenInformationClass: DWORD; var TokenInformation: DWORD; TokenInformationLength: DWORD; var ReturnLength: DWORD): BOOL;
+  external 'GetTokenInformation@advapi32.dll stdcall';
+function GetCurrentProcess: THandle;
+  external 'GetCurrentProcess@kernel32.dll stdcall';
+function CloseHandle(hObject: THandle): BOOL;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+function IsProcessElevated: Boolean;
+var
+  Token: THandle;
+  Elevation: DWORD;
+  Returned: DWORD;
+begin
+  Result := False;
+  Token := 0;
+  if not OpenProcessToken(GetCurrentProcess, TOKEN_QUERY, Token) then
+    Exit;
+  try
+    if GetTokenInformation(Token, TokenElevationClass, Elevation, SizeOf(Elevation), Returned) then
+      Result := Elevation <> 0;
+  finally
+    CloseHandle(Token);
+  end;
+end;
+
+function RelaunchParams: String;
+var
+  I: Integer;
+begin
+  Result := '/ELEVATED=1';
+  for I := 1 to ParamCount do
+    Result := Result + ' ' + AddQuotes(ParamStr(I));
+end;
+
+function InitializeSetup: Boolean;
+var
+  ErrorCode: Integer;
+begin
+  Result := True;
+  Log('elevate srcexe=' + ExpandConstant('{srcexe}'));
+  if IsProcessElevated then
+    Exit;
+  if ExpandConstant('{param:ELEVATED|}') = '1' then
+  begin
+    MsgBox('没有获得管理员权限，无法安装虚拟键盘和虚拟声卡。', mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+  if not ShellExec('runas', ExpandConstant('{srcexe}'), RelaunchParams, '', SW_SHOWNORMAL, ewNoWait, ErrorCode) then
+    MsgBox('安装虚拟键盘和虚拟声卡需要管理员权限。请在系统提示中允许。', mbInformation, MB_OK);
+  Result := False;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
@@ -71,6 +129,6 @@ begin
   Result := '';
   ExtractTemporaryFile('stop-app.ps1');
   Exec('powershell.exe',
-    '-ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\stop-app.ps1') + '" -AppPath "' + ExpandConstant('{app}') + '"',
+    '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\stop-app.ps1') + '" -AppPath "' + ExpandConstant('{app}') + '"',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;

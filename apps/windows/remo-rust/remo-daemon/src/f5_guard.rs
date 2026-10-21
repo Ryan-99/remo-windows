@@ -12,6 +12,7 @@ use std::time::Instant;
 
 static START: OnceLock<Instant> = OnceLock::new();
 static GUARD_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+static SWALLOW_PASTE_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
 static CHORD_DOWN: AtomicBool = AtomicBool::new(false);
 static HOOK: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
 static PUMP_TID: AtomicU32 = AtomicU32::new(0);
@@ -38,6 +39,18 @@ fn armed() -> bool {
 
 pub fn set_chord(down: bool) {
     CHORD_DOWN.store(down, Ordering::SeqCst);
+}
+
+/// WeChat Input Method writes the sentence live, then pastes the same
+/// sentence into WeCom with an injected Ctrl+V. Arm this for a few seconds
+/// after the voice chord goes up so that second copy never lands. A physical
+/// Ctrl+V is not injected and is left alone.
+pub fn arm_swallow_injected_paste(duration_ms: u64) {
+    SWALLOW_PASTE_UNTIL_MS.store(mono_ms().saturating_add(duration_ms), Ordering::SeqCst);
+}
+
+fn swallow_injected_paste() -> bool {
+    mono_ms() < SWALLOW_PASTE_UNTIL_MS.load(Ordering::SeqCst)
 }
 
 /// Drop the low-level hook before a voice chord is injected. While it is
@@ -71,9 +84,15 @@ fn chord_down() -> bool {
     CHORD_DOWN.load(Ordering::SeqCst)
 }
 
-pub(crate) fn should_swallow(vk: u32, injected: bool, f5_armed: bool, chord: bool) -> bool {
+pub(crate) fn should_swallow(
+    vk: u32,
+    injected: bool,
+    f5_armed: bool,
+    chord: bool,
+    swallow_injected_paste: bool,
+) -> bool {
     if injected {
-        return false;
+        return swallow_injected_paste && matches!(vk, 0x11 | 0xA2 | 0xA3 | 0x56);
     }
     if vk == 0x74 && (f5_armed || chord) {
         return true;
@@ -105,7 +124,13 @@ pub fn start() {
                         std::thread::sleep(std::time::Duration::from_millis(1));
                     }
                 }
-                if should_swallow(event.vkCode, injected, armed(), chord_down()) {
+                if should_swallow(
+                    event.vkCode,
+                    injected,
+                    armed(),
+                    chord_down(),
+                    swallow_injected_paste(),
+                ) {
                     return 1;
                 }
             }
@@ -151,19 +176,30 @@ mod tests {
 
     #[test]
     fn remote_f5_is_swallowed_only_while_the_mic_guard_or_chord_is_active() {
-        assert!(should_swallow(0x74, false, true, false));
-        assert!(should_swallow(0x74, false, false, true));
-        assert!(!should_swallow(0x74, false, false, false));
-        assert!(!should_swallow(0x74, true, true, true));
+        assert!(should_swallow(0x74, false, true, false, false));
+        assert!(should_swallow(0x74, false, false, true, false));
+        assert!(!should_swallow(0x74, false, false, false, false));
+        assert!(!should_swallow(0x74, true, true, true, false));
     }
 
     #[test]
     fn voice_chord_swallows_remote_only_keys_and_leaves_navigation_alone() {
-        assert!(should_swallow(0x5F, false, false, true));
-        assert!(should_swallow(0x5D, false, false, true));
-        assert!(should_swallow(0xC0, false, false, true));
-        assert!(!should_swallow(0x25, false, false, true));
-        assert!(!should_swallow(0x0D, false, false, true));
-        assert!(!should_swallow(0x5F, false, false, false));
+        assert!(should_swallow(0x5F, false, false, true, false));
+        assert!(should_swallow(0x5D, false, false, true, false));
+        assert!(should_swallow(0xC0, false, false, true, false));
+        assert!(!should_swallow(0x25, false, false, true, false));
+        assert!(!should_swallow(0x0D, false, false, true, false));
+        assert!(!should_swallow(0x5F, false, false, false, false));
+    }
+
+    #[test]
+    fn injected_ctrl_v_is_swallowed_only_while_the_wecom_paste_window_is_open() {
+        assert!(should_swallow(0x56, true, false, false, true));
+        assert!(should_swallow(0x11, true, false, false, true));
+        assert!(should_swallow(0xA2, true, false, false, true));
+        assert!(!should_swallow(0x56, true, false, false, false));
+        assert!(!should_swallow(0x56, false, false, false, true));
+        assert!(!should_swallow(0x41, true, false, false, true));
+        assert!(!should_swallow(0x5B, true, false, false, true));
     }
 }

@@ -31,7 +31,7 @@ fn run(tx: SyncSender<Command>) {
         }
         if tx.send(Command::Diagnostic(serde_json::json!({
             "type": "ble_transport_waiting",
-            "error": "retry",
+            "error": "正在重新查找遥控器",
         }))).is_err() {
             return;
         }
@@ -266,7 +266,7 @@ fn session(tx: &SyncSender<Command>) -> Result<(), String> {
         GattOpenStatus, GattSharingMode,
     };
     use windows::Devices::Bluetooth::{
-        BluetoothCacheMode, BluetoothConnectionStatus, BluetoothLEDevice,
+        BluetoothCacheMode, BluetoothLEDevice,
     };
     use windows::Devices::Enumeration::DeviceInformation;
     use windows::Foundation::TypedEventHandler;
@@ -365,7 +365,18 @@ fn session(tx: &SyncSender<Command>) -> Result<(), String> {
             Ok(GattOpenStatus::Success | GattOpenStatus::AlreadyOpened) => {}
             Ok(GattOpenStatus::AccessDenied) => {
                 let address = device.BluetoothAddress().unwrap_or(0);
-                match crate::raw_input::listen(tx, address) {
+                let radio_up = radio_connected(&device);
+                publish_link(tx, &name, radio_up);
+                let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let stop_flag = stop.clone();
+                let watch_tx = tx.clone();
+                let watch_name = name.clone();
+                thread::spawn(move || {
+                    watch_bluetooth_link(device, watch_name, watch_tx, radio_up, stop_flag)
+                });
+                let listened = crate::raw_input::listen(tx, address);
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                match listened {
                     Ok(()) => return Ok(()),
                     Err(error) => {
                         last_error = format!(
@@ -476,21 +487,23 @@ fn session(tx: &SyncSender<Command>) -> Result<(), String> {
             last_error = format!("{name} 没有可订阅的 HID 报告");
             continue;
         }
-        let _ = tx.send(Command::Diagnostic(serde_json::json!({
-            "type": "ble_transport_connected",
-            "name": name,
-        })));
-        // WinRT reports a brief Disconnected while the link is still usable.
-        // Tear the subscription down only after that state stays down.
+        // A paired remote can open a cached GATT session while the radio is
+        // still down. Only the live connection status may say "connected".
+        let mut radio_up = radio_connected(&device);
+        publish_link(tx, &name, radio_up);
         let mut disconnected_since: Option<Instant> = None;
         loop {
-            match device.ConnectionStatus() {
-                Ok(BluetoothConnectionStatus::Connected) => disconnected_since = None,
-                _ => {
-                    let since = disconnected_since.get_or_insert_with(Instant::now);
-                    if since.elapsed() >= Duration::from_secs(3) {
-                        break;
-                    }
+            let up = radio_connected(&device);
+            if up != radio_up {
+                radio_up = up;
+                publish_link(tx, &name, radio_up);
+            }
+            if up {
+                disconnected_since = None;
+            } else {
+                let since = disconnected_since.get_or_insert_with(Instant::now);
+                if since.elapsed() >= Duration::from_secs(3) {
+                    break;
                 }
             }
             thread::sleep(Duration::from_millis(250));
@@ -506,6 +519,56 @@ fn session(tx: &SyncSender<Command>) -> Result<(), String> {
 #[cfg(not(windows))]
 fn session(_tx: &SyncSender<Command>) -> Result<(), String> {
     Err("BLE HID 仅支持 Windows".into())
+}
+
+#[cfg(windows)]
+fn radio_connected(device: &windows::Devices::Bluetooth::BluetoothLEDevice) -> bool {
+    use windows::Devices::Bluetooth::BluetoothConnectionStatus;
+    device.ConnectionStatus().ok() == Some(BluetoothConnectionStatus::Connected)
+}
+
+#[cfg(windows)]
+fn watch_bluetooth_link(
+    device: windows::Devices::Bluetooth::BluetoothLEDevice,
+    name: String,
+    tx: SyncSender<Command>,
+    mut announced: bool,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::Ordering;
+    while !stop.load(Ordering::Relaxed) {
+        let up = radio_connected(&device);
+        if up != announced {
+            announced = up;
+            publish_link(&tx, &name, up);
+        }
+        thread::sleep(Duration::from_millis(400));
+    }
+}
+
+fn publish_link(tx: &SyncSender<Command>, name: &str, radio_up: bool) {
+    let (kind, text) = link_notice(radio_up);
+    let event = if radio_up {
+        serde_json::json!({
+            "type": kind,
+            "name": name,
+            "detail": text,
+        })
+    } else {
+        serde_json::json!({
+            "type": kind,
+            "error": text,
+        })
+    };
+    let _ = tx.send(Command::Diagnostic(event));
+}
+
+fn link_notice(radio_up: bool) -> (&'static str, &'static str) {
+    if radio_up {
+        ("ble_transport_connected", "遥控器蓝牙已连接")
+    } else {
+        ("ble_transport_waiting", "已配对，遥控器未连接")
+    }
 }
 
 fn preferred_remote_name(name: &str) -> bool {
@@ -525,5 +588,17 @@ mod tests {
         assert!(preferred_remote_name("Xiaomi RC"));
         assert!(preferred_remote_name("小米遥控器"));
         assert!(!preferred_remote_name("Headphones"));
+    }
+
+    #[test]
+    fn a_paired_remote_stays_disconnected_until_the_radio_is_up() {
+        assert_eq!(
+            super::link_notice(false),
+            ("ble_transport_waiting", "已配对，遥控器未连接")
+        );
+        assert_eq!(
+            super::link_notice(true),
+            ("ble_transport_connected", "遥控器蓝牙已连接")
+        );
     }
 }

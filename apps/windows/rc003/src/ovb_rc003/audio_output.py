@@ -156,6 +156,16 @@ def _enumerate_endpoints(channel_count_key: str) -> List[AudioEndpoint]:
 # one endpoint the "select detected CABLE Input" action is allowed to persist.
 CABLE_INPUT_NAME = "CABLE Input"
 CABLE_OUTPUT_NAME = "CABLE Output"
+# Windows renames VB-CABLE's render endpoint to the localized speaker
+# form-factor label while keeping the device name in parentheses. Chinese
+# Windows shows "扬声器 (VB-Audio Virtual Cable)" instead of "CABLE Input (...)".
+VB_CABLE_DEVICE_SUFFIX = "(VB-Audio Virtual Cable)"
+LOCALIZED_CABLE_RENDER_LABELS = frozenset({
+    "speakers",
+    "扬声器",
+    "headphones",
+    "耳机",
+})
 DJI_MIC_2_NAME_PREFIXES = ("DJI-MIC2", "DJI Mic 2", "DJI Mic2")
 
 
@@ -175,10 +185,27 @@ def _matches_cable_endpoint(name: str, canonical: str) -> bool:
     return name.startswith(decorated_prefix) and name.endswith(")")
 
 
-def is_cable_input_endpoint(name: str) -> bool:
-    """True if ``name`` names VB-CABLE's playback ("CABLE Input") endpoint."""
+def _is_localized_vb_cable_render(name: str) -> bool:
+    """True for the main VB-CABLE playback endpoint after Windows localizes it."""
 
-    return _matches_cable_endpoint(name, CABLE_INPUT_NAME)
+    name = name.strip()
+    suffix = VB_CABLE_DEVICE_SUFFIX
+    if not name.endswith(suffix):
+        return False
+    if "16 Ch" in name or name.startswith("CABLE Output") or name.startswith("CABLE In "):
+        return False
+    label = name[: -len(suffix)].strip().casefold()
+    return label in LOCALIZED_CABLE_RENDER_LABELS
+
+
+def is_cable_input_endpoint(name: str) -> bool:
+    """True if ``name`` names VB-CABLE's playback endpoint.
+
+    Accepts the driver's own ``CABLE Input`` name and the localized speaker
+    name Windows substitutes on non-English systems.
+    """
+
+    return _matches_cable_endpoint(name, CABLE_INPUT_NAME) or _is_localized_vb_cable_render(name)
 
 
 def is_cable_output_endpoint(name: str) -> bool:

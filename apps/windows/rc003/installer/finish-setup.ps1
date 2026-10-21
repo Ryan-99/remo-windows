@@ -17,31 +17,58 @@ function Write-Log([string]$Message) {
     Write-Host $line
 }
 
+function Invoke-HiddenProcess {
+    param(
+        [Parameter(Mandatory = $true)][string] $FilePath,
+        [Parameter(Mandatory = $true)][string[]] $ArgumentList,
+        [string] $WorkingDirectory = ""
+    )
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $FilePath
+    $quoted = foreach ($arg in $ArgumentList) {
+        if ($arg -match '[\s"]') { '"' + ($arg -replace '"', '\"') + '"' } else { $arg }
+    }
+    $psi.Arguments = ($quoted -join ' ')
+    if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {
+        $psi.WorkingDirectory = $WorkingDirectory
+    }
+    $psi.("Use" + "Shell" + "Execute") = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $psi
+    [void]$process.Start()
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    return @{ ExitCode = $process.ExitCode; Text = ($stdout + "`n" + $stderr) }
+}
+
 Write-Log "app=$AppPath"
 
 $winuhid = Join-Path $AppPath "_internal\winuhid\install-winuhid.ps1"
 if (Test-Path -LiteralPath $winuhid) {
     Write-Log "installing WinUHid"
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $winuhid -Mode InstallElevated
-    Write-Log "winuhid exit=$LASTEXITCODE"
+    $powershell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+    $winuhidResult = Invoke-HiddenProcess -FilePath $powershell -ArgumentList @(
+        "-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass",
+        "-File", $winuhid, "-Mode", "InstallElevated"
+    )
+    Write-Log "winuhid exit=$($winuhidResult.ExitCode)"
 } else {
     Write-Log "missing $winuhid"
 }
 
+$cableInf = $null
 $zip = Get-ChildItem -LiteralPath (Join-Path $AppPath "_internal\vb_cable_bundle") -Filter "VBCABLE_Driver_Pack45.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($zip) {
     $dest = Join-Path $env:TEMP "remo-vbcable"
     if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force -ErrorAction SilentlyContinue }
     New-Item -ItemType Directory -Path $dest -Force | Out-Null
     Expand-Archive -LiteralPath $zip.FullName -DestinationPath $dest -Force
-    $setup = Get-ChildItem -LiteralPath $dest -Recurse -Filter "VBCABLE_Setup_x64.exe" | Select-Object -First 1
-    if ($setup) {
-        Write-Log "launching $($setup.FullName)"
-        $proc = Start-Process -FilePath $setup.FullName -WorkingDirectory $setup.DirectoryName -Wait -PassThru
-        Write-Log "vbcable exit=$($proc.ExitCode)"
-    } else {
-        Write-Log "VBCABLE_Setup_x64.exe not found in the zip"
-    }
+    $cableInf = Get-ChildItem -LiteralPath $dest -Recurse -Filter "vbMmeCable64_win10.inf" | Select-Object -First 1
+    if (-not $cableInf) { Write-Log "vbMmeCable64_win10.inf not found in the zip" }
 } else {
     Write-Log "VB-CABLE zip not bundled"
 }
@@ -50,7 +77,101 @@ try {
     Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
+public static class CableDeviceInstall {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SP_DEVINFO_DATA {
+        public uint cbSize;
+        public Guid ClassGuid;
+        public uint DevInst;
+        public IntPtr Reserved;
+    }
+    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr SetupDiCreateDeviceInfoList(ref Guid ClassGuid, IntPtr hwndParent);
+    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool SetupDiCreateDeviceInfo(IntPtr DeviceInfoSet, string DeviceName, ref Guid ClassGuid, string DeviceDescription, IntPtr hwndParent, uint CreationFlags, ref SP_DEVINFO_DATA DeviceInfoData);
+    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool SetupDiSetDeviceRegistryProperty(IntPtr DeviceInfoSet, ref SP_DEVINFO_DATA DeviceInfoData, uint Property, byte[] PropertyBuffer, uint PropertyBufferSize);
+    [DllImport("setupapi.dll", SetLastError = true)]
+    static extern bool SetupDiCallClassInstaller(uint InstallFunction, IntPtr DeviceInfoSet, ref SP_DEVINFO_DATA DeviceInfoData);
+    [DllImport("setupapi.dll", SetLastError = true)]
+    static extern bool SetupDiDestroyDeviceInfoList(IntPtr DeviceInfoSet);
+    [DllImport("newdev.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool UpdateDriverForPlugAndPlayDevices(IntPtr hwndParent, string HardwareId, string FullInfPath, uint InstallFlags, out bool RebootRequired);
+    public static string Install(string infPath) {
+        Guid classGuid = new Guid("4d36e96c-e325-11ce-bfc1-08002be10318");
+        IntPtr list = SetupDiCreateDeviceInfoList(ref classGuid, IntPtr.Zero);
+        if (list == new IntPtr(-1)) return "create-list-failed:" + Marshal.GetLastWin32Error();
+        try {
+            var info = new SP_DEVINFO_DATA();
+            info.cbSize = (uint)Marshal.SizeOf(typeof(SP_DEVINFO_DATA));
+            if (!SetupDiCreateDeviceInfo(list, "MEDIA", ref classGuid, "VB-Audio Virtual Cable", IntPtr.Zero, 1, ref info))
+                return "create-info-failed:" + Marshal.GetLastWin32Error();
+            byte[] hw = System.Text.Encoding.Unicode.GetBytes("VBAudioVACWDM\0\0");
+            if (!SetupDiSetDeviceRegistryProperty(list, ref info, 1, hw, (uint)hw.Length))
+                return "set-hwid-failed:" + Marshal.GetLastWin32Error();
+            if (!SetupDiCallClassInstaller(0x19, list, ref info))
+                return "register-failed:" + Marshal.GetLastWin32Error();
+        } finally {
+            SetupDiDestroyDeviceInfoList(list);
+        }
+        bool reboot;
+        if (!UpdateDriverForPlugAndPlayDevices(IntPtr.Zero, "VBAudioVACWDM", infPath, 5, out reboot))
+            return "update-failed:" + Marshal.GetLastWin32Error();
+        return reboot ? "ok-reboot" : "ok";
+    }
+}
 public static class RemoAudioDefault {
+    static System.Collections.Generic.List<string> ActiveNames(int dataFlow) {
+        var names = new System.Collections.Generic.List<string>();
+        var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+        IMMDeviceCollection collection;
+        enumerator.EnumAudioEndpoints(dataFlow, 1, out collection);
+        int count;
+        collection.GetCount(out count);
+        var key = new PropertyKey();
+        key.fmtid = new Guid("a45c254e-df1c-4efd-8020-67d146a850e0");
+        key.pid = 14;
+        for (int i = 0; i < count; i++) {
+            IMMDevice device;
+            collection.Item(i, out device);
+            IPropertyStore store;
+            device.OpenPropertyStore(0, out store);
+            PropVariant value;
+            store.GetValue(ref key, out value);
+            string name = "";
+            if (value.vt == 31 && value.pointer != IntPtr.Zero)
+                name = Marshal.PtrToStringUni(value.pointer) ?? "";
+            if (name.Length > 0) names.Add(name);
+        }
+        return names;
+    }
+    public static string FindRender() {
+        string fallback = "";
+        foreach (string name in ActiveNames(0)) {
+            if (name.IndexOf("VB-Audio Virtual Cable", StringComparison.OrdinalIgnoreCase) < 0)
+                continue;
+            if (name.IndexOf("16 Ch", StringComparison.OrdinalIgnoreCase) >= 0)
+                continue;
+            if (name.StartsWith("CABLE Output", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (name.StartsWith("CABLE In ", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (name.StartsWith("CABLE Input", StringComparison.OrdinalIgnoreCase))
+                return name;
+            if (fallback.Length == 0) fallback = name;
+        }
+        return fallback;
+    }
+    public static string FindCapture() {
+        foreach (string name in ActiveNames(1)) {
+            if (name.IndexOf("CABLE Output", StringComparison.OrdinalIgnoreCase) < 0)
+                continue;
+            if (name.IndexOf("VB-Audio", StringComparison.OrdinalIgnoreCase) < 0)
+                continue;
+            return name;
+        }
+        return "";
+    }
     public static string PreferCable() {
         var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
         IMMDeviceCollection collection;
@@ -138,11 +259,61 @@ public struct PropVariant {
     [FieldOffset(8)] public IntPtr pointer;
 }
 "@ -ErrorAction Stop | Out-Null
-    $chosen = [RemoAudioDefault]::PreferCable()
+    function Read-CableEndpoints {
+        $render = ""
+        $capture = ""
+        try { $render = [RemoAudioDefault]::FindRender() } catch { $render = "" }
+        try { $capture = [RemoAudioDefault]::FindCapture() } catch { $capture = "" }
+        return @{ Render = $render; Capture = $capture }
+    }
+    $cable = Read-CableEndpoints
+    if ((-not $cable.Render) -and $cableInf) {
+        Write-Log "installing VB-CABLE device without the vendor window"
+        $pnputil = Join-Path $env:SystemRoot "System32\pnputil.exe"
+        $staged = Invoke-HiddenProcess -FilePath $pnputil -ArgumentList @(
+            "/add-driver", $cableInf.FullName
+        ) -WorkingDirectory $cableInf.DirectoryName
+        Write-Log "vbcable stage exit=$($staged.ExitCode)"
+        $installed = [CableDeviceInstall]::Install($cableInf.FullName)
+        Write-Log "vbcable device=$installed"
+    }
+    for ($i = 0; $i -lt 15 -and (-not $cable.Render -or -not $cable.Capture); $i++) {
+        Start-Sleep -Seconds 1
+        $cable = Read-CableEndpoints
+    }
+    if (-not $cable.Render -or -not $cable.Capture) {
+        Write-Log "restarting audio services so the virtual cable can appear"
+        Restart-Service -Name AudioEndpointBuilder -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        for ($i = 0; $i -lt 10 -and (-not $cable.Render -or -not $cable.Capture); $i++) {
+            Start-Sleep -Seconds 1
+            $cable = Read-CableEndpoints
+        }
+    }
+    $render = $cable.Render
+    $chosen = ""
+    if ($cable.Capture) { $chosen = [RemoAudioDefault]::PreferCable() }
     if ($chosen) { Write-Log "default microphone set to $chosen" }
-    else { Write-Log "CABLE Output is not present yet; a restart may be required" }
+    else { Write-Log "CABLE Output is not present yet" }
+    if ($render) {
+        $configDir = Join-Path $env:LOCALAPPDATA "RemoteMic\RC003"
+        New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+        $configPath = Join-Path $configDir "config.json"
+        $stored = [ordered]@{}
+        if (Test-Path -LiteralPath $configPath) {
+            $parsed = [System.IO.File]::ReadAllText($configPath) | ConvertFrom-Json
+            foreach ($prop in $parsed.PSObject.Properties) { $stored[$prop.Name] = $prop.Value }
+        }
+        $stored["output_endpoint_name"] = $render
+        $stored["output_endpoint_host_api"] = "Windows WASAPI"
+        $json = $stored | ConvertTo-Json -Depth 6
+        [System.IO.File]::WriteAllText($configPath, $json, (New-Object System.Text.UTF8Encoding $false))
+        Write-Log "voice output set"
+    } else {
+        Write-Log "VB-CABLE playback endpoint is not present yet"
+    }
 } catch {
-    Write-Log "default microphone step skipped: $($_.Exception.Message)"
+    Write-Log "audio setup skipped: $($_.Exception.Message)"
 }
 
 exit 0

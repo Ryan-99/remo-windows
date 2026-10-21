@@ -419,7 +419,7 @@ class DictationCheckTests(unittest.TestCase):
 
 
 class RunDiagnosticsOrchestrationTests(unittest.TestCase):
-    def test_returns_all_seven_checks_with_stable_ids(self):
+    def test_returns_all_eight_checks_with_stable_ids(self):
         report = diag.run_diagnostics()
         ids = {check.check_id for check in report.checks}
         self.assertEqual(
@@ -430,6 +430,7 @@ class RunDiagnosticsOrchestrationTests(unittest.TestCase):
                 "ble_candidate",
                 "vb_cable_endpoints",
                 "output_endpoint",
+                "voice_route",
                 "winuhid",
                 "dictation",
             },
@@ -476,7 +477,7 @@ class RunDiagnosticsIsolationTests(unittest.TestCase):
         ):
             report = module.run_diagnostics()
 
-        self.assertEqual(len(report.checks), 7)
+        self.assertEqual(len(report.checks), 8)
         failed = report.get("ble_candidate")
         self.assertEqual(failed.status, diag.CheckStatus.FAIL)
         self.assertEqual(failed.group, diag.CheckGroup.VOICE_BRIDGE)
@@ -485,7 +486,7 @@ class RunDiagnosticsIsolationTests(unittest.TestCase):
         # nothing else was aborted or left missing.
         other_ids = {
             "os_version", "raw_input", "vb_cable_endpoints", "output_endpoint",
-            "winuhid", "dictation"
+            "voice_route", "winuhid", "dictation"
         }
         self.assertEqual({c.check_id for c in report.checks} - {"ble_candidate"}, other_ids)
         for check_id in other_ids:
@@ -517,7 +518,7 @@ class RunDiagnosticsIsolationTests(unittest.TestCase):
             with mock.patch.object(module, "check_dictation_manual", side_effect=RuntimeError("b")):
                 report = module.run_diagnostics()
 
-        self.assertEqual(len(report.checks), 7)
+        self.assertEqual(len(report.checks), 8)
         self.assertEqual(report.get("os_version").status, diag.CheckStatus.FAIL)
         self.assertEqual(report.get("dictation").status, diag.CheckStatus.FAIL)
         # Untouched checks are unaffected.
@@ -1303,9 +1304,9 @@ class RunDiagnosticsStopsAfterCancellationTests(unittest.TestCase):
     to be discarded unemitted anyway.
     """
 
-    def test_no_cancel_event_still_runs_all_seven_checks(self):
+    def test_no_cancel_event_still_runs_all_eight_checks(self):
         report = diag.run_diagnostics()
-        self.assertEqual(len(report.checks), 7)
+        self.assertEqual(len(report.checks), 8)
 
     def test_stops_immediately_after_the_check_during_which_cancellation_was_observed(self):
         cancel_event = threading.Event()

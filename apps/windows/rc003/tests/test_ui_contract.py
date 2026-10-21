@@ -134,11 +134,10 @@ def test_buttons_page_keeps_all_real_mapping_controls_after_redesign():
         assert hook in page
     assert "setActionTextAt" in page
     assert '"double_click"' in page
-    assert '"long_press"' in page
+    assert '"long_press"' not in page
     assert "SettingsController.startHotkeyCapture()" in page
     assert 'objectName: "detailActionCombo_" + detailEditor.buttonId' in page
     assert 'objectName: "doubleActionCombo_" + detailEditor.buttonId' in page
-    assert 'objectName: "longActionCombo_" + detailEditor.buttonId' in page
     assert "ScrollView {" not in page
 
 

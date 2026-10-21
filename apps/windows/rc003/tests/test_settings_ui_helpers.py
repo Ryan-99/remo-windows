@@ -486,5 +486,38 @@ class DescribeLogOpenResultTests(unittest.TestCase):
         self.assertIn("no shell association available", text)
 
 
+class OpenApplicationSaveTests(unittest.TestCase):
+    def test_saved_application_keeps_its_name_and_path(self):
+        _config, bindings = build_save_model(
+            button_display_map={"home": "打开 微信", "power": "Escape"},
+            secondary_display_map={"home": {"long_press": "打开 记事本"}},
+            app_targets={
+                "home": {
+                    "single_click": {"name": "微信", "path": r"C:\Apps\Weixin.exe"},
+                    "long_press": {"name": "记事本", "path": r"C:\Windows\notepad.exe"},
+                }
+            },
+            hotkey_text="win+h",
+            trigger_mode=key_mapping.VoiceTriggerMode.TOGGLE,
+            endpoint_display_text="",
+            base_config={"voice_hotkey": "win+h", "voice_trigger_mode": "toggle"},
+            base_bindings={"schema_version": 1, "bindings": {}},
+        )
+        self.assertEqual(
+            bindings["bindings"]["home"],
+            {
+                "kind": "open_app",
+                "keys": [],
+                "app_name": "微信",
+                "app_path": r"C:\Apps\Weixin.exe",
+            },
+        )
+        self.assertEqual(
+            bindings["secondary_bindings"]["home"]["long_press"]["app_name"],
+            "记事本",
+        )
+        self.assertEqual(bindings["bindings"]["power"]["kind"], "escape")
+
+
 if __name__ == "__main__":
     unittest.main()

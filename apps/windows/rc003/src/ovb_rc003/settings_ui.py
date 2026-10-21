@@ -174,11 +174,25 @@ class SettingsValidationError(Exception):
         self.message = message
 
 
+def _app_target_for(
+    app_targets: Optional[Dict[str, Dict[str, dict]]], button_id: str, trigger: str
+) -> Optional[dict]:
+    if not isinstance(app_targets, dict):
+        return None
+    entry = app_targets.get(button_id)
+    if not isinstance(entry, dict):
+        return None
+    target = entry.get(trigger)
+    return target if isinstance(target, dict) else None
+
+
 def _action_to_display(action: key_mapping.ButtonAction) -> str:
     if action.kind == key_mapping.ActionKind.DISABLED:
         return "禁用"
     if action.kind == key_mapping.ActionKind.VOICE:
         return _VOICE_DISPLAY
+    if action.kind == key_mapping.ActionKind.OPEN_APP and action.app_name:
+        return f"打开 {action.app_name}"
     reference_label = _REFERENCE_ACTION_LABELS.get(action.kind)
     if reference_label is not None:
         return reference_label
@@ -190,7 +204,9 @@ def _action_to_display(action: key_mapping.ButtonAction) -> str:
     return "+".join(action.keys)
 
 
-def _display_to_action(text: str) -> key_mapping.ButtonAction:
+def _display_to_action(
+    text: str, app_target: Optional[dict] = None
+) -> key_mapping.ButtonAction:
     text = text.strip()
     if text in ("禁用", "disabled", SECONDARY_UNCONFIGURED_DISPLAY):
         return key_mapping.ButtonAction(key_mapping.ActionKind.DISABLED)
@@ -198,9 +214,27 @@ def _display_to_action(text: str) -> key_mapping.ButtonAction:
         return key_mapping.ButtonAction(key_mapping.ActionKind.VOICE)
     if text == "系统音量 -":
         text = "系统音量 −"
+    picked_name = ""
+    picked_path = ""
+    if isinstance(app_target, dict):
+        picked_name = str(app_target.get("name") or "").strip()
+        picked_path = str(app_target.get("path") or "").strip()
+    if picked_name and text == f"打开 {picked_name}":
+        return key_mapping.ButtonAction(
+            key_mapping.ActionKind.OPEN_APP,
+            app_name=picked_name,
+            app_path=picked_path,
+        )
     reference_kind = _REFERENCE_ACTION_KINDS_BY_LABEL.get(text)
     if reference_kind is not None:
         return key_mapping.ButtonAction(reference_kind)
+    if text.startswith("打开 "):
+        app_name = text[3:].strip()
+        if app_name:
+            return key_mapping.ButtonAction(
+                key_mapping.ActionKind.OPEN_APP,
+                app_name=app_name,
+            )
     # Keep the previous spelling accepted for users who copied the macOS
     # reference label into the Windows field.
     if text == "Command-Tab":
@@ -237,6 +271,7 @@ def build_save_model(
     *,
     button_display_map: Dict[str, str],
     secondary_display_map: Optional[Dict[str, Dict[str, str]]] = None,
+    app_targets: Optional[Dict[str, Dict[str, dict]]] = None,
     hotkey_text: str,
     trigger_mode: key_mapping.VoiceTriggerMode,
     endpoint_display_text: str,
@@ -264,7 +299,9 @@ def build_save_model(
         if not text:
             continue
         try:
-            action = _display_to_action(text)
+            action = _display_to_action(
+                text, _app_target_for(app_targets, button_id, "single_click")
+            )
         except hotkey.HotkeyParseError as exc:
             raise SettingsValidationError(button_id, str(exc)) from exc
         bindings[button_id] = action.to_dict()
@@ -296,7 +333,9 @@ def build_save_model(
                 ):
                     continue
                 try:
-                    action = _display_to_action(text)
+                    action = _display_to_action(
+                        text, _app_target_for(app_targets, button_id, trigger_name)
+                    )
                 except hotkey.HotkeyParseError as exc:
                     raise SettingsValidationError(button_id, str(exc)) from exc
                 if action.kind == key_mapping.ActionKind.DISABLED:

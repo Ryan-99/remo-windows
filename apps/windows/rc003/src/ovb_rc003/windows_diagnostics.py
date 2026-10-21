@@ -48,6 +48,7 @@ from . import audio_output
 from . import ble_transport_winrt
 from . import identity
 from . import raw_input_windows
+from . import windows_audio_defaults
 from . import winuhid
 
 # Windows 10 version 1809's build number - the lowest build this project's
@@ -1102,6 +1103,56 @@ def check_dji_mic_2_input(
     )
 
 
+# -- Voice route: default speakers must not be the cable -------------------
+
+
+def check_voice_route(
+    *,
+    read: Optional[Callable[[], Optional[windows_audio_defaults.VoiceRouteSnapshot]]] = None,
+) -> CheckResult:
+    """Default speakers on the virtual cable make an input method cancel the
+    remote audio as echo. Default capture has to be CABLE Output. The input
+    method's own microphone picker is not visible from here.
+    """
+
+    reader = read or windows_audio_defaults.read_snapshot
+    try:
+        snapshot = reader()
+    except Exception:  # noqa: BLE001 - a probe failure is this check's own result
+        return CheckResult(
+            "voice_route",
+            "输入法语音路由",
+            CheckGroup.VOICE_BRIDGE,
+            CheckStatus.UNSUPPORTED,
+            "读不到系统默认音频设备，这一项先不判断。",
+        )
+    if snapshot is None or not windows_audio_defaults.cable_is_installed(snapshot):
+        return CheckResult(
+            "voice_route",
+            "输入法语音路由",
+            CheckGroup.VOICE_BRIDGE,
+            CheckStatus.UNSUPPORTED,
+            "还没有 VB-CABLE，这一项先不判断。装好虚拟声卡后再检测。",
+        )
+    problems = windows_audio_defaults.describe_problems(snapshot)
+    if problems:
+        return CheckResult(
+            "voice_route",
+            "输入法语音路由",
+            CheckGroup.VOICE_BRIDGE,
+            CheckStatus.FAIL,
+            " ".join(problems) + " 点「一键修复」会把喇叭改回真实扬声器，并把麦克风改成 CABLE Output。",
+        )
+    return CheckResult(
+        "voice_route",
+        "输入法语音路由",
+        CheckGroup.VOICE_BRIDGE,
+        CheckStatus.PASS,
+        "默认喇叭不是虚拟声卡，三个录音角色都是 CABLE Output。"
+        "输入法自己的设置里也要选 CABLE Output，不要选带「扬声器」的那一项。",
+    )
+
+
 # -- Output endpoint resolution (voice bridge) ------------------------------
 
 
@@ -1316,6 +1367,12 @@ def run_diagnostics(
             "语音输出端点",
             CheckGroup.VOICE_BRIDGE,
             lambda: check_output_endpoint_resolution(saved_output_name, saved_output_host_api),
+        ),
+        (
+            "voice_route",
+            "输入法语音路由",
+            CheckGroup.VOICE_BRIDGE,
+            check_voice_route,
         ),
         (
             "winuhid",

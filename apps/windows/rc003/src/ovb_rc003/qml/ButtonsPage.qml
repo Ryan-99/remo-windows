@@ -23,6 +23,12 @@ Item {
         activationNonce += 1
     }
 
+    function openAppPicker(rowIndex, trigger) {
+        appPicker.rowIndex = rowIndex
+        appPicker.trigger = trigger || "single_click"
+        appPicker.open()
+    }
+
     function openShortcutRecorder(buttonId, rowIndex, isMic, trigger) {
         shortcutRecorder.buttonId = buttonId
         shortcutRecorder.rowIndex = rowIndex
@@ -30,6 +36,79 @@ Item {
         shortcutRecorder.trigger = trigger || "single_click"
         shortcutRecorder.previewText = qsTr("请按下要映射的真实按键")
         shortcutRecorder.open()
+    }
+
+    Dialog {
+        id: appPicker
+        objectName: "appPickerDialog"
+        modal: true
+        anchors.centerIn: parent
+        width: 430
+        title: qsTr("选择要打开的应用")
+        standardButtons: Dialog.Cancel
+        property int rowIndex: -1
+        property string trigger: "single_click"
+        function refresh() {
+            var all = SettingsController.installedApplications()
+            var query = searchField.text.toLowerCase()
+            var count = all && all.length ? all.length : 0
+            appModel.clear()
+            for (var i = 0; i < count; i++) {
+                var parts = String(all[i]).split("\u001f")
+                var name = parts[0]
+                if (!query || name.toLowerCase().indexOf(query) >= 0)
+                    appModel.append({ name: name, path: parts.slice(1).join("\u001f") })
+            }
+        }
+        onOpened: { searchField.text = ""; refresh() }
+        function commit(name, path) {
+            SettingsController.assignOpenApplication(rowIndex, trigger, name, path)
+            close()
+        }
+        ListModel { id: appModel }
+        contentItem: ColumnLayout {
+            implicitHeight: 360
+            spacing: 8
+            TextField {
+                id: searchField
+                objectName: "appPickerSearch"
+                Layout.fillWidth: true
+                placeholderText: qsTr("搜索开始菜单里的应用")
+                onTextChanged: appPicker.refresh()
+            }
+            ListView {
+                objectName: "appPickerList"
+                Layout.fillWidth: true
+                Layout.preferredHeight: 280
+                Layout.minimumHeight: 220
+                clip: true
+                model: appModel
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                delegate: ItemDelegate {
+                    required property string name
+                    required property string path
+                    width: ListView.view.width
+                    text: name
+                    onClicked: appPicker.commit(name, path)
+                }
+                Label {
+                    anchors.centerIn: parent
+                    visible: appModel.count === 0
+                    text: qsTr("没有匹配的程序")
+                    color: "#8a9199"
+                }
+            }
+            UiButton {
+                objectName: "browseAppButton"
+                text: qsTr("浏览程序")
+                quiet: true
+                onClicked: {
+                    var chosen = SettingsController.browseForApplication()
+                    if (chosen && chosen.name)
+                        appPicker.commit(chosen.name, chosen.path)
+                }
+            }
+        }
     }
 
     Dialog {
@@ -106,7 +185,7 @@ Item {
                     Layout.fillWidth: true
                     spacing: 3
                     Label { text: qsTr("按键"); font.pixelSize: tokens.fontSizePageTitle; font.bold: true; color: tokens.textPrimary }
-                    Label { text: qsTr("选择遥控器按键，然后配置单击、双击和长按行为"); font.pixelSize: tokens.fontSizeBody; color: tokens.textSecondary }
+                    Label { text: qsTr("选择遥控器按键，然后配置单击和双击行为"); font.pixelSize: tokens.fontSizeBody; color: tokens.textSecondary }
                 }
                 UiButton { objectName: "restoreMappingDefaultsButton"; text: qsTr("恢复默认"); quiet: true; onClicked: SettingsController.restoreDefaults() }
                 UiButton { id: saveMappingButton; objectName: "saveMappingButton"; text: qsTr("保存映射"); onClicked: SettingsController.saveSettings() }
@@ -165,7 +244,7 @@ Item {
                                 visible: belongsHere
                                 objectName: belongsHere ? "summaryButton_" + buttonId : ""
                                 Layout.fillWidth: true
-                                readonly property real targetCardHeight: belongsHere ? (root.inlineEditorButtonId === buttonId ? 166 : 54) : 0
+                                readonly property real targetCardHeight: belongsHere ? (root.inlineEditorButtonId === buttonId ? 132 : 54) : 0
                                 // Bind the layout to a named property.  This
                                 // makes the Repeater delegate recalculate its
                                 // geometry when a physical/software event
@@ -220,10 +299,9 @@ Item {
                                     Label {
                                         id: leftActionSummary
                                         Layout.fillWidth: true
-                                        text: qsTr("单击：%1 · 双击：%2 · 长按：%3")
+                                        text: qsTr("单击：%1 · 双击：%2")
                                             .arg(leftSummary.actionText || qsTr("未设置"))
                                             .arg(leftSummary.doubleClickText || qsTr("未设置"))
-                                            .arg(leftSummary.longPressText || qsTr("未设置"))
                                         color: leftSummary.isSelected ? tokens.accent : tokens.textSecondary
                                         font.pixelSize: 9
                                         elide: Text.ElideRight
@@ -233,10 +311,11 @@ Item {
                                         visible: leftSummary.belongsHere
                                         expanded: root.inlineEditorButtonId === leftSummary.buttonId
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: expanded ? 104 : 0
+                                        Layout.preferredHeight: expanded ? 68 : 0
                                         tokens: root.tokens; rowIndex: index; buttonId: leftSummary.belongsHere ? leftSummary.buttonId : ""
                                         actionText: leftSummary.actionText; doubleClickText: leftSummary.doubleClickText; longPressText: leftSummary.longPressText
                                         onRecordRequested: root.openShortcutRecorder(leftSummary.buttonId, index, false, trigger)
+                                        onAppRequested: root.openAppPicker(index, trigger)
                                     }
                                 }
                             }
@@ -428,7 +507,7 @@ Item {
                         ].indexOf(buttonId) >= 0
                                 visible: belongsHere; objectName: belongsHere ? "summaryButton_" + buttonId : ""
                                 Layout.fillWidth: true
-                                readonly property real targetCardHeight: belongsHere ? (root.inlineEditorButtonId === buttonId ? 166 : 54) : 0
+                                readonly property real targetCardHeight: belongsHere ? (root.inlineEditorButtonId === buttonId ? 132 : 54) : 0
                                 implicitHeight: targetCardHeight
                                 Layout.preferredHeight: targetCardHeight
                                 Layout.minimumHeight: targetCardHeight
@@ -479,10 +558,9 @@ Item {
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        text: qsTr("单击：%1 · 双击：%2 · 长按：%3")
+                                        text: qsTr("单击：%1 · 双击：%2")
                                             .arg(rightSummary.actionText || qsTr("未设置"))
                                             .arg(rightSummary.doubleClickText || qsTr("未设置"))
-                                            .arg(rightSummary.longPressText || qsTr("未设置"))
                                         color: rightSummary.isSelected ? tokens.accent : tokens.textSecondary
                                         font.pixelSize: 9
                                         elide: Text.ElideRight
@@ -492,10 +570,11 @@ Item {
                                         visible: rightSummary.belongsHere
                                         expanded: root.inlineEditorButtonId === rightSummary.buttonId
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: expanded ? 104 : 0
+                                        Layout.preferredHeight: expanded ? 68 : 0
                                         tokens: root.tokens; rowIndex: index; buttonId: rightSummary.belongsHere ? rightSummary.buttonId : ""
                                         actionText: rightSummary.actionText; doubleClickText: rightSummary.doubleClickText; longPressText: rightSummary.longPressText
                                         onRecordRequested: root.openShortcutRecorder(rightSummary.buttonId, index, false, trigger)
+                                        onAppRequested: root.openAppPicker(index, trigger)
                                     }
                                 }
                             }
@@ -625,7 +704,6 @@ Item {
                                 visible: isSelected; anchors.fill: parent; spacing: 5
                                 onActionTextChanged: detailSingleCombo.editText = actionText
                                 onDoubleClickTextChanged: doubleActionCombo.editText = doubleClickText
-                                onLongPressTextChanged: longActionCombo.editText = longPressText
                                     RowLayout {
                                         Layout.fillWidth: true
                                     Label { text: detailEditor.displayName; color: tokens.textPrimary; font.bold: true; font.pixelSize: 13 }
@@ -648,7 +726,8 @@ Item {
                                         onAccepted: ButtonMappingModel.setActionTextAt(detailEditor.index, editText)
                                         onActivated: ButtonMappingModel.setActionTextAt(detailEditor.index, currentText)
                                     }
-                                    UiButton { text: qsTr("录入"); quiet: true; onClicked: root.openShortcutRecorder(detailEditor.buttonId, detailEditor.index, false, "single_click") }
+                                    UiButton { text: qsTr("录入"); quiet: true; implicitWidth: 52; Layout.preferredWidth: 52; Layout.maximumWidth: 52; onClicked: root.openShortcutRecorder(detailEditor.buttonId, detailEditor.index, false, "single_click") }
+                                    UiButton { objectName: "chooseAppButton_" + detailEditor.buttonId + "_single"; text: qsTr("应用"); quiet: true; implicitWidth: 52; Layout.preferredWidth: 52; Layout.maximumWidth: 52; onClicked: root.openAppPicker(detailEditor.index, "single_click") }
                                 }
                                 RowLayout {
                                     visible: !detailEditor.isMic; Layout.fillWidth: true; spacing: 5
@@ -661,22 +740,10 @@ Item {
                                         onAccepted: ButtonMappingModel.setSecondaryActionTextAt(detailEditor.index, "double_click", editText)
                                         onActivated: ButtonMappingModel.setSecondaryActionTextAt(detailEditor.index, "double_click", currentText)
                                     }
-                                    UiButton { text: qsTr("录入"); quiet: true; onClicked: root.openShortcutRecorder(detailEditor.buttonId, detailEditor.index, false, "double_click") }
+                                    UiButton { text: qsTr("录入"); quiet: true; implicitWidth: 52; Layout.preferredWidth: 52; Layout.maximumWidth: 52; onClicked: root.openShortcutRecorder(detailEditor.buttonId, detailEditor.index, false, "double_click") }
+                                    UiButton { objectName: "chooseAppButton_" + detailEditor.buttonId + "_double"; text: qsTr("应用"); quiet: true; implicitWidth: 52; Layout.preferredWidth: 52; Layout.maximumWidth: 52; onClicked: root.openAppPicker(detailEditor.index, "double_click") }
                                 }
-                                RowLayout {
-                                    visible: !detailEditor.isMic; Layout.fillWidth: true; spacing: 5
-                                    Label { text: qsTr("长按"); Layout.preferredWidth: 34; color: tokens.textSecondary; font.pixelSize: 10 }
-                                    ComboBox {
-                                        id: longActionCombo; objectName: "longActionCombo_" + detailEditor.buttonId; Layout.fillWidth: true; editable: true
-                                        model: SettingsController.presetActionOptions; property bool initialized: false
-                                        Component.onCompleted: { editText = detailEditor.longPressText; initialized = true }
-                                        onEditTextChanged: if (initialized) ButtonMappingModel.setSecondaryActionTextAt(detailEditor.index, "long_press", editText)
-                                        onAccepted: ButtonMappingModel.setSecondaryActionTextAt(detailEditor.index, "long_press", editText)
-                                        onActivated: ButtonMappingModel.setSecondaryActionTextAt(detailEditor.index, "long_press", currentText)
-                                    }
-                                    UiButton { text: qsTr("录入"); quiet: true; onClicked: root.openShortcutRecorder(detailEditor.buttonId, detailEditor.index, false, "long_press") }
-                                }
-                                Label { visible: !detailEditor.isMic; Layout.fillWidth: true; text: qsTr("单击、双击、长按可以绑定系统按键或快捷键。"); color: tokens.textSecondary; font.pixelSize: 9 }
+                                Label { visible: !detailEditor.isMic; Layout.fillWidth: true; wrapMode: Text.WordWrap; text: qsTr("单击和双击可以绑定系统按键、快捷键，或点「应用」选择要打开的程序。选好后要点「保存映射」。已经打开的程序会被切到前面，不会再开一个。"); color: tokens.textSecondary; font.pixelSize: 9 }
                             }
                         }
                     }

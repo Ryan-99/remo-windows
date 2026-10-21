@@ -72,6 +72,16 @@ class ButtonActionSerializationTests(unittest.TestCase):
                 key_mapping.ButtonAction.from_dict(action.to_dict()), action
             )
 
+    def test_open_app_round_trip_keeps_the_name_and_path(self):
+        action = key_mapping.ButtonAction(
+            key_mapping.ActionKind.OPEN_APP,
+            app_name="微信",
+            app_path=r"C:\Apps\Weixin.exe",
+        )
+        restored = key_mapping.ButtonAction.from_dict(action.to_dict())
+        self.assertEqual(restored, action)
+        self.assertEqual(restored.keys, ())
+
     def test_reference_open_app_actions_are_first_class_actions(self):
         for action_kind in (
             key_mapping.ActionKind.OPEN_CODEX,

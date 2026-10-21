@@ -19,6 +19,7 @@ $third = Join-Path $RC003 "build\third_party"
 New-Item -ItemType Directory -Path (Join-Path $third "winuhid") -Force | Out-Null
 & robocopy (Join-Path $Origin "build\third_party\winuhid") (Join-Path $third "winuhid") /E /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy winuhid failed: $LASTEXITCODE" }
+Copy-Item -LiteralPath (Join-Path $RC003 "installer\install-winuhid.ps1") -Destination (Join-Path $third "winuhid\install-winuhid.ps1") -Force
 Copy-Item -LiteralPath (Join-Path $Origin "build\third_party\VBCABLE_Driver_Pack45.zip") -Destination (Join-Path $third "VBCABLE_Driver_Pack45.zip") -Force
 $spec = Join-Path $RC003 "build\RemoteMicRC003.spec"
 if (-not (Test-Path -LiteralPath $spec)) {

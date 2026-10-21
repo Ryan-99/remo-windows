@@ -53,6 +53,8 @@ Item {
             return { hint: qsTr("没有虚拟声卡，语音送不进输入法。安装基础版 VB-CABLE 后重启电脑。"), action: "install", label: qsTr("安装 VB-CABLE") }
         if (checkId === "output_endpoint")
             return { hint: qsTr("当前输出没有对上 CABLE Input。改过去之后，豆包要从 CABLE Output 录音。"), action: "cable", label: qsTr("改用 CABLE Input") }
+        if (checkId === "voice_route")
+            return { hint: qsTr("默认喇叭如果是虚拟声卡，输入法会把遥控器的声音当成回声消掉；默认麦克风则要是 CABLE Output。"), action: "voice_route", label: qsTr("一键修复") }
         if (checkId === "winuhid")
             return { hint: qsTr("虚拟键盘没有就绪，输入法唤不醒。先看日志，再重新打开 Remo。"), action: "log", label: qsTr("打开日志") }
         if (checkId === "raw_input")
@@ -91,6 +93,8 @@ Item {
             driverConfirmDialog.open()
         else if (action === "cable")
             DiagnosticsController.selectDetectedCableInputAsOutput()
+        else if (action === "voice_route")
+            DiagnosticsController.repairVoiceRoute()
         else if (action === "speech")
             SettingsController.openSpeechSettings()
         else if (action === "log")
@@ -197,6 +201,13 @@ Item {
                                 color: tokens.textPrimary
                                 font.bold: true
                                 font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: modelData.detail
+                                color: tokens.textSecondary
+                                font.pixelSize: 12
                                 wrapMode: Text.WordWrap
                             }
                             Label {

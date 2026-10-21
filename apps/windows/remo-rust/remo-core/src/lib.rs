@@ -73,7 +73,11 @@ pub enum Action {
     Disabled,
     Voice,
     KeyCombo { keys: Vec<String> },
-    OpenApp { target: String },
+    OpenApp {
+        target: String,
+        #[serde(default)]
+        path: String,
+    },
     SystemVolumeUp,
     SystemVolumeDown,
     ArrowUp,

@@ -115,6 +115,7 @@ from . import (
     device_catalog,
     hotkey,
     hotkey_capture_windows,
+    installed_apps,
     key_mapping,
     login_autostart,
     logging_setup,
@@ -126,6 +127,7 @@ from . import (
     statistics,
     updater,
     vb_cable_bundle,
+    windows_audio_defaults,
     windows_diagnostics,
 )
 
@@ -424,7 +426,7 @@ def _load_qt_classes() -> dict:
             Slot,
         )
         from PySide6.QtGui import QFont, QGuiApplication, QIcon
-        from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
+        from PySide6.QtWidgets import QApplication, QFileDialog, QMenu, QSystemTrayIcon
         from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterSingletonInstance
         from PySide6.QtQuickControls2 import QQuickStyle
     except ImportError as exc:
@@ -483,6 +485,7 @@ def _load_qt_classes() -> dict:
                 for bid in self._button_ids
             }
             self._selected_button_id: str = "ok"
+            self._app_targets: Dict[str, Dict[str, dict]] = {}
 
         def rowCount(self, parent=QModelIndex()) -> int:  # noqa: B008 - QML model convention
             if parent.isValid():
@@ -549,6 +552,7 @@ def _load_qt_classes() -> dict:
             self,
             display_map: Dict[str, str],
             secondary_display_map: Optional[Dict[str, Dict[str, str]]] = None,
+            app_targets: Optional[Dict[str, Dict[str, dict]]] = None,
         ) -> None:
             """Resets every non-mic row's action text from a
             button_id -> display-text mapping (settings_ui.DefaultDisplayState
@@ -559,6 +563,11 @@ def _load_qt_classes() -> dict:
             """
 
             self.beginResetModel()
+            self._app_targets = {
+                button_id: dict(triggers)
+                for button_id, triggers in (app_targets or {}).items()
+                if isinstance(triggers, dict)
+            }
             for button_id in self._button_ids:
                 self._action_text[button_id] = display_map.get(button_id, "")
                 trigger_map = (secondary_display_map or {}).get(button_id, {})
@@ -586,6 +595,13 @@ def _load_qt_classes() -> dict:
                 button_id: text
                 for button_id, text in self._action_text.items()
                 if button_id != "mic"
+            }
+
+        def to_app_target_map(self) -> Dict[str, Dict[str, dict]]:
+            return {
+                button_id: dict(triggers)
+                for button_id, triggers in self._app_targets.items()
+                if button_id != "mic" and triggers
             }
 
         def to_secondary_display_map(self) -> Dict[str, Dict[str, str]]:
@@ -619,6 +635,7 @@ def _load_qt_classes() -> dict:
             button_id = self._button_ids[row]
             if button_id == "mic":
                 return  # fixed, not editable - see data()'s ActionTextRole branch
+            self._keep_app_target(button_id, "single_click", text)
             self._action_text[button_id] = text
             model_index = self.index(row, 0)
             self.dataChanged.emit(model_index, model_index, [self.ActionTextRole])
@@ -636,6 +653,7 @@ def _load_qt_classes() -> dict:
             button_id = self._button_ids[row]
             if button_id == "mic":
                 return
+            self._keep_app_target(button_id, trigger, text)
             self._secondary_action_text[button_id][trigger] = text
             model_index = self.index(row, 0)
             role = (
@@ -644,6 +662,40 @@ def _load_qt_classes() -> dict:
                 else self.LongPressTextRole
             )
             self.dataChanged.emit(model_index, model_index, [role])
+
+        def _keep_app_target(self, button_id: str, trigger: str, text: str) -> None:
+            stored = self._app_targets.get(button_id, {}).get(trigger)
+            if isinstance(stored, dict) and text == f"打开 {stored.get('name', '')}":
+                return
+            bucket = self._app_targets.get(button_id)
+            if isinstance(bucket, dict):
+                bucket.pop(trigger, None)
+
+        def set_open_application(self, row: int, trigger: str, name: str, path: str) -> None:
+            if not (0 <= row < len(self._button_ids)):
+                return
+            name = name.strip()
+            path = path.strip()
+            if not name or not path:
+                return
+            if trigger not in {
+                "single_click",
+                key_mapping.ButtonTrigger.DOUBLE_CLICK.value,
+                key_mapping.ButtonTrigger.LONG_PRESS.value,
+            }:
+                return
+            button_id = self._button_ids[row]
+            if button_id == "mic":
+                return
+            self._app_targets.setdefault(button_id, {})[trigger] = {
+                "name": name,
+                "path": path,
+            }
+            label = f"打开 {name}"
+            if trigger == "single_click":
+                self.setActionTextAt(row, label)
+            else:
+                self.setSecondaryActionTextAt(row, trigger, label)
 
         def set_selected_button(self, button_id: str) -> None:
             if button_id == self._selected_button_id or button_id not in self._action_text:
@@ -847,12 +899,23 @@ def _load_qt_classes() -> dict:
             bindings = self._bindings.get("bindings", {})
             display_map: Dict[str, str] = {}
             secondary_display_map: Dict[str, Dict[str, str]] = {}
+            app_targets: Dict[str, Dict[str, dict]] = {}
+
+            def remember(button_id: str, trigger: str, action: key_mapping.ButtonAction) -> None:
+                if action.kind != key_mapping.ActionKind.OPEN_APP or not action.app_name:
+                    return
+                app_targets.setdefault(button_id, {})[trigger] = {
+                    "name": action.app_name,
+                    "path": action.app_path,
+                }
+
             for button_id in remote_layout.BUTTON_ORDER:
                 action_dict = bindings.get(button_id)
                 if action_dict is not None:
                     try:
                         action = key_mapping.ButtonAction.from_dict(action_dict)
                         display_map[button_id] = settings_ui._action_to_display(action)
+                        remember(button_id, "single_click", action)
                     except (KeyError, TypeError, ValueError):
                         display_map[button_id] = ""
                 else:
@@ -877,7 +940,8 @@ def _load_qt_classes() -> dict:
                             secondary_display_map[button_id][trigger_name] = (
                                 settings_ui._action_to_display(action)
                             )
-            self._model.load_display_map(display_map, secondary_display_map)
+                            remember(button_id, trigger_name, action)
+            self._model.load_display_map(display_map, secondary_display_map, app_targets)
 
         def _selected_device_id(self) -> str:
             if 0 <= self._selected_device_index < len(self._DEVICE_ORDER):
@@ -1018,6 +1082,7 @@ def _load_qt_classes() -> dict:
                 new_config, new_bindings = settings_ui.build_save_model(
                     button_display_map=self._model.to_display_map(),
                     secondary_display_map=self._model.to_secondary_display_map(),
+                    app_targets=self._model.to_app_target_map(),
                     hotkey_text=self._hotkey_text,
                     trigger_mode=trigger_mode,
                     endpoint_display_text=endpoint_display,
@@ -1929,6 +1994,39 @@ def _load_qt_classes() -> dict:
                 self._set_error_message("无法向桥接进程发送停止请求。")
             self.refreshBridgeStatus()
 
+        @Slot(result=list)
+        def installedApplications(self) -> list:
+            # QML can read a list of strings. A list of dicts comes back as an
+            # opaque value, so the picker never sees the names.
+            rows = []
+            for item in installed_apps.list_start_menu_apps():
+                rows.append(f"{item['name']}\u001f{item['path']}")
+            return rows
+
+        @Slot(result="QVariant")
+        def browseForApplication(self):
+            path, _chosen = QFileDialog.getOpenFileName(
+                None,
+                "选择要打开的程序",
+                "",
+                "程序 (*.exe *.lnk)",
+            )
+            if not path:
+                return {}
+            described = installed_apps.describe_application(Path(path))
+            return described or {}
+
+        @Slot(int, str, str, str)
+        def assignOpenApplication(self, row: int, trigger: str, name: str, path: str) -> None:
+            described = installed_apps.describe_application(Path(path)) if path else None
+            if described is None and name.strip() and path.strip():
+                described = {"name": name.strip(), "path": path.strip()}
+            if not described:
+                return
+            self._model.set_open_application(
+                row, trigger, described["name"], described["path"]
+            )
+
         @Slot()
         def restoreDefaults(self) -> None:
             """Resets every widget's DISPLAYED value to the defaults - never
@@ -2361,6 +2459,25 @@ def _load_qt_classes() -> dict:
             self._set_driver_status(f"已选择 {endpoint.name} 作为语音输出设备并保存。")
             return True
 
+        @Slot(result=bool)
+        def repairVoiceRoute(self) -> bool:
+            """Moves the system default speakers off VB-CABLE and points the
+            default microphone at CABLE Output. Only called from the
+            inspection button. Never raises out of this Slot.
+            """
+
+            try:
+                message = windows_audio_defaults.repair_voice_route()
+            except windows_audio_defaults.VoiceRouteError as exc:
+                self._set_driver_error(str(exc))
+                return False
+            except Exception:  # noqa: BLE001 - the button must not crash the window
+                self._set_driver_error("修复语音路由时出现意外错误。")
+                return False
+            self._set_driver_status(message)
+            self.refreshDiagnostics()
+            return True
+
         @Slot()
         def launchVbCableSetup(self) -> None:
             """Launches the bundled VB-CABLE vendor setup UI with UAC. Only
@@ -2423,15 +2540,22 @@ def _set_windows_app_identity() -> None:
     """Give the settings process its own taskbar identity.
 
     Without an explicit AppUserModelID, Windows groups this window under
-    whichever pythonw.exe happened to launch it.
+    whichever pythonw.exe happened to launch it. A failure here only affects
+    taskbar grouping, so it must not stop the settings window from opening.
     """
 
     if sys.platform != "win32":
         return
-    shell32 = ctypes.windll.shell32
-    shell32.SetCurrentProcessExplicitAppUserModelID.argtypes = [ctypes.c_wchar_p]
-    shell32.SetCurrentProcessExplicitAppUserModelID.restype = ctypes.HRESULT
-    shell32.SetCurrentProcessExplicitAppUserModelID("Remo.RC003.Settings")
+    try:
+        shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+        set_id = shell32.SetCurrentProcessExplicitAppUserModelID
+        set_id.argtypes = [ctypes.c_wchar_p]
+        # c_long, not HRESULT: ctypes turns a failing HRESULT into OSError
+        # and that used to kill the process before any window appeared.
+        set_id.restype = ctypes.c_long
+        set_id("Remo.RC003.Settings")
+    except (OSError, AttributeError):
+        return
 
 
 class _WinRect(ctypes.Structure):
@@ -2445,6 +2569,106 @@ class _WinRect(ctypes.Structure):
 
 class _NcCalcSizeParams(ctypes.Structure):
     _fields_ = [("rgrc", _WinRect * 3), ("lppos", ctypes.c_void_p)]
+
+
+# Same radius as windowSurface in qml/main.qml. Windows 11 clips the frame
+# itself; Windows 10 needs an explicit window mask to reveal that curve.
+_WINDOW_CORNER_RADIUS_DIP = 12
+
+
+def _apply_optional_dwm_chrome(hwnd: int, set_attribute=None) -> bool:
+    """Round the corners and hide the border when this Windows build allows it.
+
+    ``DWMWA_WINDOW_CORNER_PREFERENCE`` (33) and ``DWMWA_BORDER_COLOR`` (34)
+    exist only on Windows 11. Windows 10 returns ``E_INVALIDARG``
+    (0x80070057). ctypes raises that as ``OSError`` when the function's
+    ``restype`` is ``HRESULT``, which closed the settings window before it
+    was shown. ``restype`` is therefore ``c_long``, and a rejected corner
+    attribute returns False so the caller can clip the same curve itself.
+    """
+
+    corner = ctypes.c_int(2)
+    border = ctypes.c_uint(0xFFFFFFFE)
+    if set_attribute is None:
+        dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
+        native = dwmapi.DwmSetWindowAttribute
+        native.argtypes = [
+            ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint
+        ]
+        native.restype = ctypes.c_long
+
+        def set_attribute(window, attribute, data, size):  # noqa: A001
+            return native(window, attribute, data, size)
+
+    rounded = False
+    for attribute, value in ((33, corner), (34, border)):
+        try:
+            result = set_attribute(hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value))
+        except OSError:
+            continue
+        if attribute == 33 and result == 0:
+            rounded = True
+    return rounded
+
+
+def _window_is_maximized(window) -> bool:
+    try:
+        from PySide6.QtGui import QWindow
+
+        maximized = QWindow.Visibility.Maximized
+    except (AttributeError, ImportError, TypeError):
+        maximized = 4
+    visibility = getattr(window, "visibility", None)
+    state = visibility() if callable(visibility) else visibility
+    return state == maximized
+
+
+def _legacy_corner_region(width: int, height: int, maximized: bool, radius: int = _WINDOW_CORNER_RADIUS_DIP):
+    """Clip a Windows 10 window to the same curve the QML surface already paints.
+
+    A maximized window stays square so its edges still meet the screen.
+    An empty region clears the mask.
+    """
+
+    from PySide6.QtGui import QPainterPath, QRegion
+
+    if maximized or width <= 0 or height <= 0 or radius <= 0:
+        return QRegion()
+    path = QPainterPath()
+    path.addRoundedRect(0, 0, float(width), float(height), float(radius), float(radius))
+    return QRegion(path.toFillPolygon().toPolygon())
+
+
+def _install_legacy_round_corners(window) -> None:
+    """Keep a Windows 10 settings window rounded as it moves and resizes.
+
+    Windows 11 already rounded the frame. This mask is only installed when
+    that call was rejected. Any failure leaves the square frame in place
+    instead of closing the window.
+    """
+
+    def sync(*_args) -> None:
+        try:
+            window.setMask(
+                _legacy_corner_region(
+                    int(window.width()),
+                    int(window.height()),
+                    _window_is_maximized(window),
+                )
+            )
+        except (AttributeError, OverflowError, RuntimeError, TypeError, ValueError):
+            return
+
+    # PySide drops a connected callable that nothing else references.
+    window._remo_round_mask_sync = sync
+    for name in ("widthChanged", "heightChanged", "visibilityChanged"):
+        signal = getattr(window, name, None)
+        if signal is not None and hasattr(signal, "connect"):
+            try:
+                signal.connect(sync)
+            except (AttributeError, RuntimeError, TypeError):
+                continue
+    sync()
 
 
 def _enable_fitted_drag_frame(app, window) -> None:
@@ -2480,58 +2704,64 @@ def _enable_fitted_drag_frame(app, window) -> None:
                     return False, 0
             except (OverflowError, TypeError, ValueError):
                 return False, 0
-            if ctypes.windll.user32.IsZoomed(hwnd):
-                params = ctypes.cast(msg.lParam, ctypes.POINTER(_NcCalcSizeParams)).contents
-                user32 = ctypes.windll.user32
-                pad_x = user32.GetSystemMetrics(32) + user32.GetSystemMetrics(92)
-                pad_y = user32.GetSystemMetrics(33) + user32.GetSystemMetrics(92)
-                params.rgrc[0].left += pad_x
-                params.rgrc[0].right -= pad_x
-                params.rgrc[0].top += pad_y
-                params.rgrc[0].bottom -= pad_y
+            try:
+                if ctypes.windll.user32.IsZoomed(hwnd):
+                    params = ctypes.cast(msg.lParam, ctypes.POINTER(_NcCalcSizeParams)).contents
+                    user32 = ctypes.windll.user32
+                    pad_x = user32.GetSystemMetrics(32) + user32.GetSystemMetrics(92)
+                    pad_y = user32.GetSystemMetrics(33) + user32.GetSystemMetrics(92)
+                    params.rgrc[0].left += pad_x
+                    params.rgrc[0].right -= pad_x
+                    params.rgrc[0].top += pad_y
+                    params.rgrc[0].bottom -= pad_y
+            except (OSError, AttributeError, OverflowError, ValueError):
+                return False, 0
             return True, 0
 
     frame_filter = _FrameFilter()
     app.installNativeEventFilter(frame_filter)
     app._remo_drag_frame_filter = frame_filter
 
-    user32 = ctypes.windll.user32
-    user32.IsZoomed.argtypes = [ctypes.c_void_p]
-    user32.IsZoomed.restype = ctypes.c_int
-    pointer = ctypes.c_void_p
-    get_long = user32.GetWindowLongPtrW
-    set_long = user32.SetWindowLongPtrW
-    get_long.argtypes = [pointer, ctypes.c_int]
-    get_long.restype = ctypes.c_ssize_t
-    set_long.argtypes = [pointer, ctypes.c_int, ctypes.c_ssize_t]
-    set_long.restype = ctypes.c_ssize_t
-    style = get_long(hwnd, -16)
-    # Caption and thick frame make Windows paint its large shadow. Keep the
-    # client equal to the window, and use the smaller class drop shadow.
-    style = (style & ~0x00C00000 & ~0x00040000) | 0x00020000 | 0x00010000 | 0x00080000
-    set_long(hwnd, -16, style)
-    extended = get_long(hwnd, -20)
-    set_long(hwnd, -20, extended & ~0x00080000)
-    get_class = user32.GetClassLongPtrW
-    set_class = user32.SetClassLongPtrW
-    get_class.argtypes = [pointer, ctypes.c_int]
-    get_class.restype = ctypes.c_size_t
-    set_class.argtypes = [pointer, ctypes.c_int, ctypes.c_size_t]
-    set_class.restype = ctypes.c_size_t
-    set_class(hwnd, -26, get_class(hwnd, -26) | 0x00020000)
-    dwmapi = ctypes.windll.dwmapi
-    corner = ctypes.c_int(2)
-    border = ctypes.c_uint(0xFFFFFFFE)
-    dwmapi.DwmSetWindowAttribute.argtypes = [
-        pointer, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint
-    ]
-    dwmapi.DwmSetWindowAttribute.restype = ctypes.HRESULT
-    dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(corner), ctypes.sizeof(corner))
-    dwmapi.DwmSetWindowAttribute(hwnd, 34, ctypes.byref(border), ctypes.sizeof(border))
-    user32.SetWindowPos.argtypes = [
-        pointer, pointer, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint,
-    ]
-    user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
+    rounded = False
+    try:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.IsZoomed.argtypes = [ctypes.c_void_p]
+        user32.IsZoomed.restype = ctypes.c_int
+        pointer = ctypes.c_void_p
+        get_long = user32.GetWindowLongPtrW
+        set_long = user32.SetWindowLongPtrW
+        get_long.argtypes = [pointer, ctypes.c_int]
+        get_long.restype = ctypes.c_ssize_t
+        set_long.argtypes = [pointer, ctypes.c_int, ctypes.c_ssize_t]
+        set_long.restype = ctypes.c_ssize_t
+        style = get_long(hwnd, -16)
+        if style:
+            # Caption and thick frame make Windows paint its large shadow. Keep the
+            # client equal to the window, and use the smaller class drop shadow.
+            style = (style & ~0x00C00000 & ~0x00040000) | 0x00020000 | 0x00010000 | 0x00080000
+            set_long(hwnd, -16, style)
+        extended = get_long(hwnd, -20)
+        set_long(hwnd, -20, extended & ~0x00080000)
+        get_class = user32.GetClassLongPtrW
+        set_class = user32.SetClassLongPtrW
+        get_class.argtypes = [pointer, ctypes.c_int]
+        get_class.restype = ctypes.c_size_t
+        set_class.argtypes = [pointer, ctypes.c_int, ctypes.c_size_t]
+        set_class.restype = ctypes.c_size_t
+        set_class(hwnd, -26, get_class(hwnd, -26) | 0x00020000)
+        rounded = _apply_optional_dwm_chrome(hwnd)
+        user32.SetWindowPos.argtypes = [
+            pointer, pointer, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint,
+        ]
+        user32.SetWindowPos.restype = ctypes.c_int
+        user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
+    except (OSError, AttributeError, OverflowError, ValueError):
+        pass
+    if not rounded:
+        try:
+            _install_legacy_round_corners(window)
+        except (AttributeError, OverflowError, RuntimeError, TypeError, ValueError):
+            return
 
 
 def _pin_settings_window_to_taskbar(window, *, refresh: bool = True) -> None:
@@ -2550,31 +2780,62 @@ def _pin_settings_window_to_taskbar(window, *, refresh: bool = True) -> None:
         return
     if hwnd == 0:
         return
-    user32 = ctypes.windll.user32
-    pointer = ctypes.c_void_p
-    get_long = user32.GetWindowLongPtrW
-    set_long = user32.SetWindowLongPtrW
-    get_long.argtypes = [pointer, ctypes.c_int]
-    get_long.restype = ctypes.c_ssize_t
-    set_long.argtypes = [pointer, ctypes.c_int, ctypes.c_ssize_t]
-    set_long.restype = ctypes.c_ssize_t
-    extended = get_long(hwnd, -20)
-    extended = (extended & ~0x00000080) | 0x00040000
-    set_long(hwnd, -20, extended)
-    user32.SetWindowPos.argtypes = [
-        pointer,
-        pointer,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_uint,
-    ]
-    user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
-    # Windows only rebuilds the taskbar button after a hide/show cycle.
-    if refresh:
-        user32.ShowWindow(hwnd, 0)
-        user32.ShowWindow(hwnd, 9)
+    try:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        pointer = ctypes.c_void_p
+        get_long = user32.GetWindowLongPtrW
+        set_long = user32.SetWindowLongPtrW
+        get_long.argtypes = [pointer, ctypes.c_int]
+        get_long.restype = ctypes.c_ssize_t
+        set_long.argtypes = [pointer, ctypes.c_int, ctypes.c_ssize_t]
+        set_long.restype = ctypes.c_ssize_t
+        extended = get_long(hwnd, -20)
+        extended = (extended & ~0x00000080) | 0x00040000
+        set_long(hwnd, -20, extended)
+        user32.SetWindowPos.argtypes = [
+            pointer,
+            pointer,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint,
+        ]
+        user32.SetWindowPos.restype = ctypes.c_int
+        user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
+        user32.ShowWindow.argtypes = [pointer, ctypes.c_int]
+        user32.ShowWindow.restype = ctypes.c_int
+        # Windows only rebuilds the taskbar button after a hide/show cycle.
+        if refresh:
+            user32.ShowWindow(hwnd, 0)
+            user32.ShowWindow(hwnd, 9)
+    except (OSError, AttributeError, OverflowError, ValueError):
+        return
+
+
+def _microphone_handoff_path() -> Path:
+    return config.config_root() / "capture-handoff.json"
+
+
+def _engage_microphone_handoff(controller) -> windows_audio_defaults.CaptureHandoffResult:
+    try:
+        result = windows_audio_defaults.engage_capture_session(_microphone_handoff_path())
+    except windows_audio_defaults.VoiceRouteError as exc:
+        controller._set_error_message(str(exc))
+        return windows_audio_defaults.CaptureHandoffResult(False, "")
+    except Exception:
+        logging.getLogger("remo.audio").exception("capture handoff failed")
+        return windows_audio_defaults.CaptureHandoffResult(False, "")
+    if result.message:
+        controller._set_status_message(result.message)
+    return result
+
+
+def _restore_microphone_handoff() -> None:
+    try:
+        windows_audio_defaults.restore_capture_session(_microphone_handoff_path())
+    except Exception:
+        logging.getLogger("remo.audio").exception("capture restore failed")
 
 
 def run_settings_window() -> int:
@@ -2729,7 +2990,12 @@ def run_settings_window() -> int:
             )
             tray.show()
 
-        return app.exec()
+        handoff = _engage_microphone_handoff(controller)
+        try:
+            return app.exec()
+        finally:
+            if handoff.restore_on_exit:
+                _restore_microphone_handoff()
     finally:
         controller.stopHotkeyCapture()
         controller.stopKeyDetection()

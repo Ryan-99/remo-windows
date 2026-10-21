@@ -1,28 +1,26 @@
 """Small, dependency-free GitHub Release updater for the Remo client.
 
-The updater deliberately downloads a signed/packaged installer rather than
-trying to replace files in the running PyInstaller directory.  GitHub's public
-release API is used because an installed desktop client cannot safely contain
-an access token for a private repository.
+The updater deliberately downloads a packaged installer rather than trying
+to replace files in the running PyInstaller directory.  The public release
+page is used because an installed desktop client cannot safely contain an
+access token, and the anonymous release API is too easy to rate-limit.
 """
 
 from __future__ import annotations
 
-import json
-import os
 import re
 import subprocess
 import tempfile
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from . import __version__
 
 UPDATE_REPOSITORY = "Ryan-99/remo-windows"
-RELEASE_API_URL = f"https://api.github.com/repos/{UPDATE_REPOSITORY}/releases/latest"
+LATEST_RELEASE_URL = f"https://github.com/{UPDATE_REPOSITORY}/releases/latest"
 _VERSION_RE = re.compile(r"^(?:v)?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?$", re.I)
+_TAG_IN_URL_RE = re.compile(r"/releases/tag/((?:v)?\d+(?:\.\d+){0,2})(?:[/?#]|$)", re.I)
 
 
 @dataclass(frozen=True)
@@ -49,43 +47,42 @@ def _current_release_version() -> str:
     return str(__version__).removesuffix("-candidate")
 
 
-def _request_json(url: str, timeout: float = 8.0) -> dict:
+def _tag_from_release_url(url: str) -> str:
+    match = _TAG_IN_URL_RE.search(str(url or ""))
+    if not match:
+        raise ValueError("无法识别最新版本")
+    return match.group(1)
+
+
+def _latest_release_tag(timeout: float = 8.0) -> str:
+    """Read the version from the public release page.
+
+    The REST release API allows only a few anonymous requests per hour and
+    answers 403 once that quota is gone. The release page redirects
+    ``/releases/latest`` to ``/releases/tag/vX.Y.Z`` without that quota.
+    """
+
     request = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "Remo-Windows-Updater",
-        },
+        LATEST_RELEASE_URL,
+        headers={"Accept": "text/html", "User-Agent": "Remo-Windows-Updater"},
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError("GitHub release response is not an object")
-    return payload
+        final_url = response.geturl()
+    return _tag_from_release_url(final_url)
 
 
 def check_latest_release() -> UpdateInfo:
-    payload = _request_json(RELEASE_API_URL)
-    tag = str(payload.get("tag_name") or payload.get("name") or "")
-    assets = payload.get("assets") or []
-    installer = next(
-        (
-            asset
-            for asset in assets
-            if isinstance(asset, dict)
-            and str(asset.get("name", "")).lower().endswith((".exe", ".msi"))
-            and asset.get("browser_download_url")
-        ),
-        None,
-    )
-    if installer is None:
-        raise ValueError("最新 Release 没有可用的 Windows 安装包")
+    tag = _latest_release_tag()
+    version = tag[1:] if tag[:1].lower() == "v" else tag
+    installer_name = f"RemoSetup-{version}.exe"
     return UpdateInfo(
         current_version=_current_release_version(),
         latest_version=tag,
-        release_url=str(payload.get("html_url") or ""),
-        installer_url=str(installer["browser_download_url"]),
-        installer_name=str(installer.get("name") or "Remo-Update.exe"),
+        release_url=f"https://github.com/{UPDATE_REPOSITORY}/releases/tag/{tag}",
+        installer_url=(
+            f"https://github.com/{UPDATE_REPOSITORY}/releases/download/{tag}/{installer_name}"
+        ),
+        installer_name=installer_name,
     )
 
 

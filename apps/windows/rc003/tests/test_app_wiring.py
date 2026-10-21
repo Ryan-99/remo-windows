@@ -18,6 +18,7 @@ win32_input.py's ``_require_windows()`` genuinely raises
 in for it.
 """
 
+import atexit
 import asyncio
 import logging
 import subprocess
@@ -130,25 +131,34 @@ class _FakeHidListenerForFailedStart:
 
 
 def _release_app_loggers() -> None:
-    """Close the process-wide app log so a temp directory can be removed."""
+    """Close the process-wide app log so a temp directory can be removed.
+
+    A late log record can reopen a FileHandler after ``close()`` sets its
+    stream to None. Detach the handler first, then close whatever stream
+    is left, including one opened by that race.
+    """
 
     logger = logging.getLogger(logging_setup.LOGGER_NAME)
     for handler in list(logger.handlers):
-        stream = getattr(handler, "stream", None)
+        logger.removeHandler(handler)
         try:
-            handler.flush()
-            handler.close()
+            handler.acquire()
+            try:
+                handler.flush()
+                handler.close()
+                stream = getattr(handler, "stream", None)
+                if stream is not None and not getattr(stream, "closed", True):
+                    stream.close()
+            finally:
+                handler.release()
         except OSError:
             pass
-        if stream is not None and not getattr(stream, "closed", True):
-            try:
-                stream.close()
-            except OSError:
-                pass
-        logger.removeHandler(handler)
     logging_setup._configured = False
     logging_setup._active_log_file = None
     logging_setup._active_log_root = None
+
+
+atexit.register(_release_app_loggers)
 
 
 def _build_app(tmp_root: Path) -> "app_module.RC003App":

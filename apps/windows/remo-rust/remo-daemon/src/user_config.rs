@@ -174,6 +174,23 @@ fn button_from_name(name: &str) -> Option<Button> {
     })
 }
 
+fn open_app_action(value: &Value) -> Action {
+    let path = value["app_path"].as_str().unwrap_or("").trim().to_string();
+    let mut target = value["app_name"].as_str().unwrap_or("").trim().to_string();
+    if target.is_empty() {
+        target = Path::new(&path)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("")
+            .to_string();
+    }
+    if target.is_empty() && path.is_empty() {
+        Action::Disabled
+    } else {
+        Action::OpenApp { target, path }
+    }
+}
+
 fn action_from(value: &Value) -> Action {
     let kind = value["kind"].as_str().unwrap_or("disabled");
     let keys = value["keys"]
@@ -215,8 +232,10 @@ fn action_from(value: &Value) -> Action {
         "play_pause" => Action::KeyCombo {
             keys: vec!["play_pause".into()],
         },
+        "open_app" => open_app_action(value),
         other if other.starts_with("open_") => Action::OpenApp {
             target: other.to_string(),
+            path: String::new(),
         },
         _ if !keys.is_empty() => Action::KeyCombo { keys },
         _ => Action::Disabled,
@@ -265,5 +284,22 @@ mod tests {
             Action::Disabled
         );
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn open_app_keeps_the_saved_name_and_path() {
+        let value = serde_json::json!({
+            "kind": "open_app",
+            "keys": [],
+            "app_name": "微信",
+            "app_path": "C:\\Apps\\Weixin.exe"
+        });
+        assert_eq!(
+            action_from(&value),
+            Action::OpenApp {
+                target: "微信".into(),
+                path: "C:\\Apps\\Weixin.exe".into()
+            }
+        );
     }
 }

@@ -885,7 +885,7 @@ class DiagnosticsControllerTests(unittest.TestCase):
         diag = self.DiagnosticsController(settings_controller, self._config_root)
         self.assertTrue(diag.isRefreshing)
         self.assertTrue(self._pump_until(lambda: not diag.isRefreshing))
-        self.assertEqual(len(diag.checkResults), 7)
+        self.assertEqual(len(diag.checkResults), 8)
         ids = {row["checkId"] for row in diag.checkResults}
         self.assertIn("dictation", ids)
 
@@ -906,7 +906,7 @@ class DiagnosticsControllerTests(unittest.TestCase):
         settings_controller = self._make_settings_controller()
         diag = self.DiagnosticsController(settings_controller, self._config_root)
         self.assertTrue(self._pump_until(lambda: not diag.isRefreshing))
-        self.assertEqual(len(diag.checkResults), 7)  # a real prior run populated these
+        self.assertEqual(len(diag.checkResults), 8)  # a real prior run populated these
         self.assertEqual(diag.diagnosticsErrorMessage, "")
 
         with mock.patch.object(
@@ -934,7 +934,7 @@ class DiagnosticsControllerTests(unittest.TestCase):
         diag.refreshDiagnostics()
         self.assertTrue(self._pump_until(lambda: not diag.isRefreshing))
         self.assertEqual(diag.diagnosticsErrorMessage, "")
-        self.assertEqual(len(diag.checkResults), 7)
+        self.assertEqual(len(diag.checkResults), 8)
 
     def test_worker_thread_is_deregistered_once_finished(self):
         settings_controller = self._make_settings_controller()
@@ -1263,7 +1263,10 @@ class RunSettingsWindowShutdownCoverageTests(unittest.TestCase):
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
-        self._env_patch = mock.patch.dict(os.environ, {"LOCALAPPDATA": self._tmpdir.name})
+        self._env_patch = mock.patch.dict(
+            os.environ,
+            {"LOCALAPPDATA": self._tmpdir.name, "REMO_CAPTURE_HANDOFF": "0"},
+        )
         self._env_patch.start()
         qt_settings_app._diagnostics_shutdown_event.clear()
 
@@ -1942,7 +1945,7 @@ class ButtonsPageDirectSaveIntegrationTests(unittest.TestCase):
 
 @unittest.skipUnless(_HAS_PYSIDE6, _SKIP_REASON)
 class QmlNavigationInteractionTests(unittest.TestCase):
-    """Drive the real five-page QML shell with real mouse clicks."""
+    """Drive the four-page QML shell with real mouse clicks."""
 
     def test_navigation_statistics_periods_and_permissions_subtab(self):
         import json
@@ -1964,17 +1967,10 @@ class QmlNavigationInteractionTests(unittest.TestCase):
             f"QML navigation probe failed: {result.stdout}\n{result.stderr}",
         )
         data = json.loads(result.stdout.strip().splitlines()[-1])
-        self.assertEqual(data["navigation"], [0, 1, 2, 3, 4])
-        self.assertEqual(data["statistics_period"], "all")
-        self.assertEqual(data["system_tab"], 0)
-        self.assertEqual(
-            data["opened_targets"],
-            [
-                "ms-settings:bluetooth",
-                "ms-settings:privacy-microphone",
-                "ms-settings:speech",
-            ],
-        )
+        self.assertEqual(data["navigation"], [0, 1, 2, 3])
+        self.assertEqual(data["statistics_period"], "day")
+        self.assertEqual(data["system_tab"], 1)
+        self.assertEqual(data["opened_targets"], ["ms-settings:bluetooth"])
 
 
 def _contrast_ratio(luminance_a, luminance_b):

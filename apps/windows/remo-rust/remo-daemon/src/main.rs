@@ -357,7 +357,7 @@ fn action_label(action: &Action) -> String {
         Action::Disabled => "disabled".to_string(),
         Action::Voice => "voice".to_string(),
         Action::KeyCombo { keys } => format!("key_combo:{}", keys.join("+")),
-        Action::OpenApp { target } => format!("open_app:{target}"),
+        Action::OpenApp { target, .. } => format!("open_app:{target}"),
         Action::SystemVolumeUp => "volume_up".to_string(),
         Action::SystemVolumeDown => "volume_down".to_string(),
         Action::ArrowUp => "arrow_up".to_string(),
@@ -676,6 +676,7 @@ fn main() -> io::Result<()> {
         spawn_reader()
     };
     let mut frida_live = false;
+    let mut remote_link_up = false;
     let physical = backend != "simulation";
     let (mut voice_hub, rx) = if execute && physical {
         let (hub, voice_rx) = voice_hub::start(
@@ -794,30 +795,46 @@ fn main() -> io::Result<()> {
             Ok(Command::Diagnostic(event)) => {
                 match event["type"].as_str() {
                     Some("voice_audio_started") => {
-                        status.set_state("voice_active", "正在接收遥控器语音");
-                        if let Err(error) = status.write() {
-                            eprintln!("bridge status write failed: {error}");
+                        // Idle warm-up also receives AUDIO_START. That is not
+                        // a user recording, and it must not paint the page green.
+                        let warmup = event["prime"].as_bool().unwrap_or(false);
+                        if remote_link_up && !warmup {
+                            status.set_state("voice_active", "正在接收遥控器语音");
+                            if let Err(error) = status.write() {
+                                eprintln!("bridge status write failed: {error}");
+                            }
                         }
                     }
                     Some("voice_audio_stopped") => {
-                        status.set_state("connected", "遥控器按键通道已连接");
-                        if let Err(error) = status.write() {
-                            eprintln!("bridge status write failed: {error}");
+                        let warmup = event["prime"].as_bool().unwrap_or(false);
+                        if remote_link_up && !warmup {
+                            status.set_state("connected", "遥控器蓝牙已连接");
+                            if let Err(error) = status.write() {
+                                eprintln!("bridge status write failed: {error}");
+                            }
                         }
                     }
                     Some("frida_transport_connected") => {
                         frida_live = true;
-                        status.set_state("connected", "遥控器按键通道已连接");
-                        if let Err(error) = status.write() {
-                            eprintln!("bridge status write failed: {error}");
+                        // The Frida socket is the HID host process, not the remote.
+                        if backend != "ble" {
+                            remote_link_up = true;
+                            status.set_state("connected", "遥控器按键通道已连接");
+                            if let Err(error) = status.write() {
+                                eprintln!("bridge status write failed: {error}");
+                            }
                         }
                     }
                     Some("ble_transport_connected") => {
-                        let detail = match event["name"].as_str() {
-                            Some(name) if !name.is_empty() => {
-                                format!("遥控器按键通道已连接：{name}")
-                            }
-                            _ => "遥控器按键通道已连接".to_string(),
+                        remote_link_up = true;
+                        let detail = match event["detail"].as_str() {
+                            Some(detail) if !detail.is_empty() => detail.to_string(),
+                            _ => match event["name"].as_str() {
+                                Some(name) if !name.is_empty() => {
+                                    format!("遥控器蓝牙已连接：{name}")
+                                }
+                                _ => "遥控器蓝牙已连接".to_string(),
+                            },
                         };
                         status.set_state("connected", &detail);
                         if let Err(error) = status.write() {
@@ -831,19 +848,24 @@ fn main() -> io::Result<()> {
                             eprintln!("bridge status write failed: {error}");
                         }
                     }
-                    Some(
-                        "frida_transport_disconnected"
-                        | "frida_transport_stale"
-                        | "ble_transport_waiting",
-                    ) => {
-                        if event["type"] != "ble_transport_waiting" {
-                            frida_live = false;
-                            engine.cancel();
-                            repeats.clear();
-                            if let Some(hub) = voice_hub.as_mut() {
-                                let _ = hub.set_mic(false);
+                    Some("frida_transport_disconnected" | "frida_transport_stale") => {
+                        frida_live = false;
+                        engine.cancel();
+                        repeats.clear();
+                        if let Some(hub) = voice_hub.as_mut() {
+                            let _ = hub.set_mic(false);
+                        }
+                        if backend != "ble" {
+                            remote_link_up = false;
+                            let detail = event["error"].as_str().unwrap_or("正在重连遥控器");
+                            status.set_state("reconnecting", detail);
+                            if let Err(error) = status.write() {
+                                eprintln!("bridge status write failed: {error}");
                             }
                         }
+                    }
+                    Some("ble_transport_waiting") => {
+                        remote_link_up = false;
                         let detail = event["error"].as_str().unwrap_or("正在重连遥控器");
                         status.set_state("reconnecting", detail);
                         if let Err(error) = status.write() {

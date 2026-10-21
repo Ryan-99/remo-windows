@@ -130,7 +130,7 @@ impl ActionExecutor for WindowsExecutor {
             Action::DeleteBackward => Self::send_combo(&["BACKSPACE".into()]),
             Action::SystemVolumeUp => send_balanced(&[VK_VOLUME_UP], |_| false, Self::send_vk),
             Action::SystemVolumeDown => send_balanced(&[VK_VOLUME_DOWN], |_| false, Self::send_vk),
-            Action::OpenApp { target } => open_app(target),
+            Action::OpenApp { target, path } => open_app(target, path),
             Action::Voice => {
                 if self.voice_hotkey.is_empty() {
                     Err("voice hotkey is empty".into())
@@ -217,22 +217,260 @@ pub fn create_executor(execute: bool, voice_hotkey: Vec<String>) -> Box<dyn Acti
     Box::new(SimulationExecutor)
 }
 
-fn open_app(target: &str) -> Result<(), String> {
-    let command = match target {
-        "open_wechat" => "WeChat",
-        "open_chrome" => "chrome",
-        "open_edge" => "msedge",
-        "open_cursor" => "Cursor",
-        "open_codex" => "codex",
-        "open_slack" => "slack",
-        "open_zed" => "zed",
-        other => other,
+fn open_app(target: &str, path: &str) -> Result<(), String> {
+    if let Some(existing) = existing_file(path) {
+        if is_executable(&existing) && focus_running(&existing) {
+            return Ok(());
+        }
+        return shell_open(&existing);
+    }
+    let names = search_names(target);
+    if let Some(shortcut) = find_named_shortcut(&start_menu_roots(), &names) {
+        return shell_open(&shortcut);
+    }
+    Err("没有找到这个应用".into())
+}
+
+fn search_names(target: &str) -> Vec<&str> {
+    match target {
+        "open_wechat" => vec!["微信", "WeChat", "Weixin"],
+        "open_wecom" => vec!["企业微信", "WeCom", "WXWork"],
+        "open_chrome" => vec!["Google Chrome", "Chrome"],
+        "open_edge" => vec!["Microsoft Edge", "Edge"],
+        "open_netease_music" => vec!["网易云音乐", "NetEase Cloud Music"],
+        "open_cursor" => vec!["Cursor"],
+        "open_slack" => vec!["Slack"],
+        "open_codex" => vec!["Codex"],
+        "open_claude" => vec!["Claude"],
+        "open_zed" => vec!["Zed"],
+        "open_cmux" => vec!["cmux"],
+        "open_remote_mic" => vec!["Remo"],
+        other => vec![other],
+    }
+}
+
+fn existing_file(path: &str) -> Option<std::path::PathBuf> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let path = std::path::PathBuf::from(trimmed);
+    path.is_file().then_some(path)
+}
+
+fn is_executable(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+}
+
+pub fn find_named_shortcut(roots: &[std::path::PathBuf], names: &[&str]) -> Option<std::path::PathBuf> {
+    let wanted: Vec<String> = names
+        .iter()
+        .map(|name| name.trim().to_lowercase())
+        .filter(|name| !name.is_empty())
+        .collect();
+    if wanted.is_empty() {
+        return None;
+    }
+    let mut best: Option<(usize, std::path::PathBuf)> = None;
+    for root in roots {
+        visit_shortcuts(root, 0, &wanted, &mut best);
+    }
+    best.map(|(_, path)| path)
+}
+
+fn visit_shortcuts(
+    dir: &std::path::Path,
+    depth: usize,
+    wanted: &[String],
+    best: &mut Option<(usize, std::path::PathBuf)>,
+) {
+    if depth > 6 {
+        return;
+    }
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
     };
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "", command])
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("open app failed: {error}"))
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            visit_shortcuts(&path, depth + 1, wanted, best);
+            continue;
+        }
+        if !path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("lnk"))
+        {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        let folded = stem.to_lowercase();
+        let Some(rank) = wanted.iter().position(|name| name == &folded) else {
+            continue;
+        };
+        if best.as_ref().is_none_or(|(current, _)| rank < *current) {
+            *best = Some((rank, path));
+        }
+    }
+}
+
+fn start_menu_roots() -> Vec<std::path::PathBuf> {
+    ["APPDATA", "PROGRAMDATA"]
+        .into_iter()
+        .filter_map(|key| std::env::var_os(key))
+        .map(|value| {
+            std::path::PathBuf::from(value)
+                .join("Microsoft")
+                .join("Windows")
+                .join("Start Menu")
+                .join("Programs")
+        })
+        .filter(|path| path.is_dir())
+        .collect()
+}
+
+fn shell_open(path: &std::path::Path) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let file = wide_path(path);
+        let operation = wide("open");
+        let result = unsafe {
+            windows_sys::Win32::UI::Shell::ShellExecuteW(
+                std::ptr::null_mut(),
+                operation.as_ptr(),
+                file.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                1,
+            )
+        };
+        if (result as isize) > 32 {
+            Ok(())
+        } else {
+            Err("打开应用失败".into())
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err("打开应用失败".into())
+    }
+}
+
+fn focus_running(path: &std::path::Path) -> bool {
+    #[cfg(windows)]
+    {
+        focus_executable(path)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+#[cfg(windows)]
+fn focus_executable(path: &std::path::Path) -> bool {
+    use windows_sys::Win32::Foundation::{FALSE, TRUE};
+    use windows_sys::Win32::System::Threading::{
+        AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetForegroundWindow, GetWindowTextLengthW, GetWindowThreadProcessId,
+        IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, SW_RESTORE,
+    };
+    let wanted = normalize_path(path);
+    if wanted.is_empty() {
+        return false;
+    }
+    struct Search {
+        wanted: String,
+        hwnd: *mut core::ffi::c_void,
+    }
+    unsafe extern "system" fn visit(hwnd: *mut core::ffi::c_void, param: isize) -> i32 {
+        let search = &mut *(param as *mut Search);
+        if unsafe { IsWindowVisible(hwnd) } == FALSE || unsafe { GetWindowTextLengthW(hwnd) } == 0 {
+            return TRUE;
+        }
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+        if pid == 0 {
+            return TRUE;
+        }
+        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid) };
+        if process.is_null() {
+            return TRUE;
+        }
+        let mut buffer = [0u16; 1024];
+        let mut length = buffer.len() as u32;
+        let ok = unsafe {
+            QueryFullProcessImageNameW(process, 0, buffer.as_mut_ptr(), &mut length)
+        };
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(process) };
+        if ok == FALSE {
+            return TRUE;
+        }
+        let image = String::from_utf16_lossy(&buffer[..length as usize]);
+        if normalize_text(&image) == search.wanted {
+            search.hwnd = hwnd;
+            return FALSE;
+        }
+        TRUE
+    }
+    let mut search = Search {
+        wanted,
+        hwnd: std::ptr::null_mut(),
+    };
+    unsafe { EnumWindows(Some(visit), &mut search as *mut Search as isize) };
+    if search.hwnd.is_null() {
+        return false;
+    }
+    unsafe {
+        if IsIconic(search.hwnd) == TRUE {
+            ShowWindow(search.hwnd, SW_RESTORE);
+        }
+        let foreground = GetForegroundWindow();
+        let foreground_thread = GetWindowThreadProcessId(foreground, std::ptr::null_mut());
+        let current = GetCurrentThreadId();
+        let attached = foreground_thread != 0
+            && foreground_thread != current
+            && AttachThreadInput(current, foreground_thread, TRUE) == TRUE;
+        let raised = SetForegroundWindow(search.hwnd) == TRUE;
+        if attached {
+            AttachThreadInput(current, foreground_thread, FALSE);
+        }
+        raised
+    }
+}
+
+#[cfg(windows)]
+fn normalize_path(path: &std::path::Path) -> String {
+    let text = path.to_string_lossy();
+    normalize_text(&text)
+}
+
+#[cfg(windows)]
+fn normalize_text(text: &str) -> String {
+    text.trim()
+        .trim_start_matches(r"\\?\")
+        .replace('/', "\\")
+        .to_lowercase()
+}
+
+#[cfg(windows)]
+fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(windows)]
+fn wide_path(path: &std::path::Path) -> Vec<u16> {
+    wide(&path.to_string_lossy())
 }
 
 #[cfg(test)]
@@ -315,5 +553,16 @@ mod tests {
         for value in ["F0", "F25", "F65535", "!", ""] {
             assert_eq!(WindowsExecutor::vk_for_name(value), None);
         }
+    }
+    #[test]
+    fn an_exact_shortcut_name_beats_a_longer_lookalike() {
+        let dir = std::env::temp_dir().join(format!("remo-apps-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("nested")).unwrap();
+        std::fs::write(dir.join("微信输入法.lnk"), b"x").unwrap();
+        std::fs::write(dir.join("nested").join("微信.lnk"), b"x").unwrap();
+        let found = find_named_shortcut(&[dir.clone()], &["微信"]).unwrap();
+        assert_eq!(found.file_stem().unwrap(), "微信");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -252,10 +252,9 @@ fn listen_windows(tx: &SyncSender<Command>, address: u64) -> Result<(), String> 
         {
             return Err("无法注册系统按键通道".into());
         }
-        let _ = tx.send(Command::Diagnostic(serde_json::json!({
-            "type": "ble_transport_connected",
-            "name": "小米蓝牙语音遥控器",
-        })));
+        // Registering the listener only means this process can receive keys.
+        // The Bluetooth radio is reported by the caller, which can see whether
+        // the paired remote is actually connected.
         let mut message: MSG = std::mem::zeroed();
         while GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) > 0 {
             TranslateMessage(&message);

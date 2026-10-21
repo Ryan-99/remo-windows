@@ -65,6 +65,7 @@ class ActionKind(str, Enum):
     OPEN_CHROME = "open_chrome"
     OPEN_EDGE = "open_edge"
     OPEN_ZED = "open_zed"
+    OPEN_APP = "open_app"
 
 
 class ButtonTrigger(str, Enum):
@@ -130,6 +131,7 @@ APPLICATION_ACTIONS = frozenset(
         ActionKind.OPEN_CHROME,
         ActionKind.OPEN_EDGE,
         ActionKind.OPEN_ZED,
+        ActionKind.OPEN_APP,
     }
 )
 
@@ -196,9 +198,15 @@ def voice_hotkey_for_trigger_mode(trigger_mode: VoiceTriggerMode) -> str:
 class ButtonAction:
     kind: ActionKind
     keys: Tuple[str, ...] = field(default_factory=tuple)
+    app_name: str = ""
+    app_path: str = ""
 
     def to_dict(self) -> dict:
-        return {"kind": self.kind.value, "keys": list(self.keys)}
+        data = {"kind": self.kind.value, "keys": list(self.keys)}
+        if self.kind == ActionKind.OPEN_APP:
+            data["app_name"] = self.app_name
+            data["app_path"] = self.app_path
+        return data
 
     @classmethod
     def from_dict(cls, data: dict) -> "ButtonAction":
@@ -215,6 +223,12 @@ class ButtonAction:
             raise ValueError("key_combo action must contain at least one key")
         if kind != ActionKind.KEY_COMBO and keys:
             raise ValueError("non-key action must not contain keys")
+        if kind == ActionKind.OPEN_APP:
+            app_name = str(data.get("app_name") or "").strip()
+            app_path = str(data.get("app_path") or "").strip()
+            if not app_name:
+                raise ValueError("open_app action must name an application")
+            return cls(kind=kind, keys=(), app_name=app_name, app_path=app_path)
         return cls(kind=kind, keys=keys)
 
 

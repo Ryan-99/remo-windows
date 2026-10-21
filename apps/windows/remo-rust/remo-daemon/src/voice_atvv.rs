@@ -321,11 +321,13 @@ fn session(
                         "type": "voice_audio_started",
                         "stream": stream,
                         "bytes": bytes,
+                        "prime": priming,
                     })));
                 }
                 Control::AudioStopped | Control::MicClosed => {
                     let _ = diag.send(Command::Diagnostic(serde_json::json!({
                         "type": "voice_audio_stopped",
+                        "prime": priming,
                     })));
                 }
                 Control::MicButton if !session.active() && !opening => pending_press = true,

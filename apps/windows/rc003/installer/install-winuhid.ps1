@@ -1,0 +1,431 @@
+[CmdletBinding()]
+param(
+  [ValidateSet("Install", "InstallElevated", "Status")]
+  [string] $Mode = "Install",
+  [string] $PackageDir = "",
+  [string] $DllSource = "",
+  [switch] $Force
+)
+
+$ErrorActionPreference = "Stop"
+$ScriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+
+function Resolve-InstallPaths {
+  param([string] $PackageDirIn, [string] $DllSourceIn)
+  $pkg = $PackageDirIn
+  if ([string]::IsNullOrWhiteSpace($pkg)) {
+    $pkg = Join-Path $ScriptRoot "driver"
+  } elseif (-not [System.IO.Path]::IsPathRooted($pkg)) {
+    $pkg = Join-Path $ScriptRoot $pkg
+  }
+  if (-not (Test-Path -LiteralPath $pkg)) {
+    throw "driver folder not found: $pkg`nRun from this folder in Admin PowerShell: .\install-winuhid.ps1"
+  }
+  $pkg = (Resolve-Path -LiteralPath $pkg).Path
+
+  $dll = $DllSourceIn
+  if ([string]::IsNullOrWhiteSpace($dll)) {
+    $dll = Join-Path $ScriptRoot "WinUHid.dll"
+  } elseif (-not [System.IO.Path]::IsPathRooted($dll)) {
+    $dll = Join-Path $ScriptRoot $dll
+  }
+  if (-not (Test-Path -LiteralPath $dll)) {
+    throw "WinUHid.dll not found: $dll"
+  }
+  return @{ PackageDir = $pkg; DllSource = $dll }
+}
+
+$resolved = Resolve-InstallPaths -PackageDirIn $PackageDir -DllSourceIn $DllSource
+$PackageDir = $resolved.PackageDir
+$DllSource = $resolved.DllSource
+
+$StateRoot = Join-Path $env:LOCALAPPDATA "com.remote-bridge-hub.app\winuhid"
+$RebootFlag = Join-Path $StateRoot "reboot-required.flag"
+$HardwareId = "Root\WinUHid"
+$DeviceDescription = "WinUHid Virtual HID Enumerator"
+
+function Write-Phase([string] $Name, [string] $Detail) {
+  Write-Output ("Phase: {0} | {1}" -f $Name, $Detail)
+}
+
+function Test-WinUHidDevice {
+  try {
+    $fs = [System.IO.File]::Open('\\.\WinUHid', 'Open', 'ReadWrite', 'ReadWrite')
+    $fs.Close()
+    return $true
+  } catch {
+    return $false
+  }
+}
+
+function Initialize-RootDeviceInstaller {
+  if ("WinUHidRootInstaller" -as [type]) { return }
+  Add-Type -Language CSharp -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class WinUHidRootInstaller {
+  // GitHub #10: must call SetupDiSetDeviceRegistryPropertyW. A-API + UTF-16 bytes
+  // splits HardwareID into single characters (R,o,o,t,...) so the driver never binds.
+  const uint DICD_GENERATE_ID=0x1, SPDRP_HARDWAREID=0x1, DIF_REGISTERDEVICE=0x19;
+  static readonly IntPtr INVALID_HANDLE_VALUE=new IntPtr(-1);
+  [StructLayout(LayoutKind.Sequential)] struct SP_DEVINFO_DATA { public uint cbSize; public Guid ClassGuid; public uint DevInst; public IntPtr Reserved; }
+  [DllImport("setupapi.dll",SetLastError=true)] static extern IntPtr SetupDiCreateDeviceInfoList(ref Guid ClassGuid,IntPtr hwndParent);
+  [DllImport("setupapi.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool SetupDiCreateDeviceInfo(IntPtr set,string name,ref Guid guid,string desc,IntPtr hwnd,uint flags,ref SP_DEVINFO_DATA data);
+  [DllImport("setupapi.dll",EntryPoint="SetupDiSetDeviceRegistryPropertyW",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool SetupDiSetDeviceRegistryProperty(IntPtr set,ref SP_DEVINFO_DATA data,uint property,byte[] buffer,uint size);
+  [DllImport("setupapi.dll",SetLastError=true)] static extern bool SetupDiCallClassInstaller(uint installFunction,IntPtr set,ref SP_DEVINFO_DATA data);
+  [DllImport("setupapi.dll",SetLastError=true)] static extern bool SetupDiDestroyDeviceInfoList(IntPtr set);
+  [DllImport("newdev.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool UpdateDriverForPlugAndPlayDevices(IntPtr hwnd,string hardwareId,string infPath,uint flags,out bool reboot);
+  static void Check(bool ok){if(!ok)throw new Win32Exception(Marshal.GetLastWin32Error());}
+  public static void RegisterRootDevice(string hardwareId,string description){
+    Guid systemClass=new Guid("4d36e97d-e325-11ce-bfc1-08002be10318");
+    IntPtr set=SetupDiCreateDeviceInfoList(ref systemClass,IntPtr.Zero);
+    if(set==INVALID_HANDLE_VALUE)throw new Win32Exception(Marshal.GetLastWin32Error());
+    try {
+      SP_DEVINFO_DATA data=new SP_DEVINFO_DATA(); data.cbSize=(uint)Marshal.SizeOf(typeof(SP_DEVINFO_DATA));
+      Check(SetupDiCreateDeviceInfo(set,description,ref systemClass,description,IntPtr.Zero,DICD_GENERATE_ID,ref data));
+      // REG_MULTI_SZ Unicode: id + double NUL; size in bytes (DevCon: (len+1+1)*sizeof(TCHAR))
+      byte[] ids=Encoding.Unicode.GetBytes(hardwareId+"\0\0");
+      Check(SetupDiSetDeviceRegistryProperty(set,ref data,SPDRP_HARDWAREID,ids,(uint)ids.Length));
+      Check(SetupDiCallClassInstaller(DIF_REGISTERDEVICE,set,ref data));
+    } finally { SetupDiDestroyDeviceInfoList(set); }
+  }
+  public static bool BindDriver(string hardwareId,string infPath){
+    bool reboot;
+    // FORCE | NONINTERACTIVE: install without the driver-setup dialog.
+    if(!UpdateDriverForPlugAndPlayDevices(IntPtr.Zero,hardwareId,infPath,5,out reboot))
+      throw new Win32Exception(Marshal.GetLastWin32Error());
+    return reboot;
+  }
+}
+'@
+}
+
+function Test-HardwareIdValueCorrupt([string[]] $Values, [string] $Expected) {
+  if ($null -eq $Values -or $Values.Count -eq 0) { return $false }
+  if ($Values -contains $Expected) { return $false }
+  # Classic #10 corruption: each UTF-16 code unit stored as its own MULTI_SZ entry
+  $joined = ($Values -join '')
+  if ($joined -eq $Expected) { return $true }
+  if ($Values.Count -ge 4 -and ($Values | Where-Object { $_.Length -eq 1 }).Count -eq $Values.Count) {
+    return $true
+  }
+  return $false
+}
+
+function Get-WinUHidEnumKeyPaths {
+  $root = 'HKLM:\SYSTEM\CurrentControlSet\Enum\Root'
+  if (-not (Test-Path -LiteralPath $root)) { return @() }
+  $paths = @()
+  Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue | ForEach-Object {
+    $name = $_.PSChildName
+    if ($name -match 'WinUHid|WINUHID') {
+      Get-ChildItem -LiteralPath $_.PSPath -ErrorAction SilentlyContinue | ForEach-Object {
+        $paths += $_.PSPath
+      }
+    }
+  }
+  return $paths
+}
+
+function Repair-WinUHidHardwareId {
+  <#
+    .SYNOPSIS
+      Fix GitHub #10 corrupted HardwareID (single-character MULTI_SZ) under Root\WinUHid*.
+  #>
+  $expected = $HardwareId
+  $repaired = 0
+  foreach ($path in Get-WinUHidEnumKeyPaths) {
+    try {
+      $item = Get-ItemProperty -LiteralPath $path -ErrorAction Stop
+      $raw = $item.HardwareID
+      if ($null -eq $raw) { continue }
+      $values = @($raw)
+      if (-not (Test-HardwareIdValueCorrupt -Values $values -Expected $expected)) { continue }
+      Write-Phase "RepairHardwareId" "corrupt HardwareID at $path → restoring '$expected'"
+      $key = Get-Item -LiteralPath $path
+      # Prefer .NET MultiString write (correct REG_MULTI_SZ)
+      $hivePath = $key.Name  # e.g. HKEY_LOCAL_MACHINE\SYSTEM\...
+      $sub = $hivePath -replace '^HKEY_LOCAL_MACHINE\\', ''
+      $rk = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($sub, $true)
+      if ($null -eq $rk) { throw "cannot open $sub for write" }
+      try {
+        $rk.SetValue('HardwareID', [string[]]@($expected), [Microsoft.Win32.RegistryValueKind]::MultiString)
+        $repaired++
+      } finally { $rk.Close() }
+    } catch {
+      Write-Phase "RepairHardwareId" "skip $path : $($_.Exception.Message)"
+    }
+  }
+  if ($repaired -gt 0) {
+    Write-Phase "RepairHardwareId" "repaired=$repaired node(s)"
+  } else {
+    Write-Phase "RepairHardwareId" "no corrupt HardwareID found"
+  }
+  return $repaired
+}
+
+function Invoke-HiddenProcess {
+  param(
+    [Parameter(Mandatory = $true)][string] $FilePath,
+    [Parameter(Mandatory = $true)][string[]] $ArgumentList,
+    [string] $WorkingDirectory = ""
+  )
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $FilePath
+  $quoted = foreach ($arg in $ArgumentList) {
+    if ($arg -match '[\s"]') { '"' + ($arg -replace '"', '\"') + '"' } else { $arg }
+  }
+  $psi.Arguments = ($quoted -join ' ')
+  if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {
+    $psi.WorkingDirectory = $WorkingDirectory
+  }
+  $psi.("Use" + "Shell" + "Execute") = $false
+  $psi.CreateNoWindow = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $psi
+  [void]$process.Start()
+  $stdout = $process.StandardOutput.ReadToEnd()
+  $stderr = $process.StandardError.ReadToEnd()
+  $process.WaitForExit()
+  return @{ ExitCode = $process.ExitCode; Text = ($stdout + "`n" + $stderr) }
+}
+
+function Test-RootDeviceNodeListed([string] $PnputilPath) {
+  $present = @(Get-PnpDevice -Class System -ErrorAction SilentlyContinue | Where-Object {
+    $_.FriendlyName -eq $DeviceDescription -and $_.Status -eq "OK"
+  })
+  if ($present.Count -gt 0) { return $true }
+  try {
+    $result = Invoke-HiddenProcess -FilePath $PnputilPath -ArgumentList @('/enum-devices', '/instanceid', $HardwareId)
+    return ($result.Text -match [regex]::Escape($HardwareId))
+  } catch {
+    return $false
+  }
+}
+
+function Invoke-PnputilPhase {
+  param(
+    [Parameter(Mandatory = $true)][string] $PnputilPath,
+    [Parameter(Mandatory = $true)][string] $PhaseName,
+    [Parameter(Mandatory = $true)][string[]] $Arguments,
+    [int[]] $AllowedExitCodes = @(0)
+  )
+  $argLine = ($Arguments -join ' ')
+  Write-Phase $PhaseName "running pnputil $argLine"
+  $hidden = Invoke-HiddenProcess -FilePath $PnputilPath -ArgumentList $Arguments
+  $code = $hidden.ExitCode
+  if ($AllowedExitCodes -contains $code) {
+    Write-Phase $PhaseName "exit=$code OK"
+    return $code
+  }
+  throw "pnputil $argLine failed with exit code $code"
+}
+
+function Register-RootDeviceNode([string] $InfPath, [string] $PnputilPath) {
+  # Always attempt repair of #10 corruption before skipping registration
+  $null = Repair-WinUHidHardwareId
+
+  if (Test-RootDeviceNodeListed $PnputilPath) {
+    Write-Phase "RegisterRoot" "node already listed ($HardwareId)"
+    return
+  }
+
+  $devcon = $null
+  foreach ($pattern in @(
+    "C:\Program Files (x86)\Windows Kits\10\Tools\*\x64\devcon.exe",
+    "C:\Program Files (x86)\Windows Kits\10\Tools\*\*\x64\devcon.exe"
+  )) {
+    $found = Get-Item $pattern -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
+    if ($found) { $devcon = $found.FullName; break }
+  }
+
+  if ($devcon) {
+    Write-Phase "RegisterRoot" "trying devcon fast-path"
+    $devconResult = Invoke-HiddenProcess -FilePath $devcon -ArgumentList @('install', $InfPath, $HardwareId)
+    $devconCode = $devconResult.ExitCode
+    if ($devconCode -eq 0) {
+      Write-Phase "RegisterRoot" "devcon exit=0 OK"
+      $null = Repair-WinUHidHardwareId
+      return
+    }
+    Write-Phase "RegisterRoot" "devcon exit=$devconCode; falling back to SetupAPI DIF_REGISTERDEVICE"
+  } else {
+    Write-Phase "RegisterRoot" "devcon not found; using SetupAPI DIF_REGISTERDEVICE"
+  }
+
+  Initialize-RootDeviceInstaller
+  try {
+    [WinUHidRootInstaller]::RegisterRootDevice($HardwareId, $DeviceDescription)
+    Write-Phase "RegisterRoot" "SetupAPI DIF_REGISTERDEVICE OK"
+  } catch {
+    if (Test-RootDeviceNodeListed $PnputilPath) {
+      Write-Phase "RegisterRoot" "SetupAPI reported error but node now listed; continuing ($($_.Exception.Message))"
+      $null = Repair-WinUHidHardwareId
+      return
+    }
+    throw
+  }
+  $null = Repair-WinUHidHardwareId
+}
+
+function Bind-AndPresentRootDevice([string] $InfPath, [string] $PnputilPath) {
+  $reboot = $false
+  Initialize-RootDeviceInstaller
+  try {
+    $reboot = [WinUHidRootInstaller]::BindDriver($HardwareId, $InfPath)
+    Write-Phase "BindDriver" "silent update reboot=$reboot"
+  } catch {
+    Write-Phase "BindDriver" "silent update failed ($($_.Exception.Message)); trying pnputil"
+    $installCode = Invoke-PnputilPhase -PnputilPath $PnputilPath -PhaseName "BindDriver" -Arguments @('/add-driver', $InfPath, '/install') -AllowedExitCodes @(0, 259, 3010)
+    if ($installCode -eq 3010) { $reboot = $true }
+  }
+
+  Invoke-PnputilPhase -PnputilPath $PnputilPath -PhaseName "ScanDevices" -Arguments @('/scan-devices') -AllowedExitCodes @(0)
+  return $reboot
+}
+
+function Wait-WinUHidReady {
+  param([int] $Attempts = 12, [int] $DelayMs = 500)
+  for ($i = 0; $i -lt $Attempts; $i++) {
+    if (Test-WinUHidDevice) { return $true }
+    Start-Sleep -Milliseconds $DelayMs
+  }
+  return $false
+}
+
+function Install-PublisherCert([string] $CerPath) {
+  if (-not (Test-Path -LiteralPath $CerPath)) { return }
+  $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($CerPath)
+  foreach ($storeName in @('Root', 'TrustedPublisher')) {
+    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store($storeName, 'LocalMachine')
+    $store.Open('ReadWrite')
+    try {
+      $exists = $store.Certificates | Where-Object { $_.Thumbprint -eq $cert.Thumbprint }
+      if (-not $exists) { $store.Add($cert) }
+    } finally { $store.Close() }
+  }
+}
+
+function Deploy-UserDll {
+  if ([string]::IsNullOrWhiteSpace($DllSource) -or -not (Test-Path -LiteralPath $DllSource)) { return }
+  $targets = @()
+  if ($env:REMOTE_BRIDGE_WINUHID_DLL_DIR) { $targets += $env:REMOTE_BRIDGE_WINUHID_DLL_DIR }
+  $targets += (Join-Path $env:LOCALAPPDATA "com.remote-bridge-hub.app\winuhid")
+  foreach ($dir in $targets) {
+    $null = New-Item -ItemType Directory -Force -Path $dir
+    Copy-Item -LiteralPath $DllSource -Destination (Join-Path $dir "WinUHid.dll") -Force
+  }
+}
+
+function Invoke-ElevatedInstall {
+  $args = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -Mode InstallElevated -PackageDir "{1}" -DllSource "{2}"' -f $PSCommandPath, $PackageDir, $DllSource
+  $process = Start-Process -FilePath "powershell.exe" -ArgumentList $args -Verb RunAs -WindowStyle Hidden -PassThru -Wait
+  if ($null -eq $process) { throw "UAC cancelled or elevated WinUHid install did not start" }
+  if ($process.ExitCode -notin @(0, 3010)) { throw "WinUHid driver install failed with code $($process.ExitCode)" }
+  return $process.ExitCode
+}
+
+$result = "OK"
+try {
+  $null = New-Item -ItemType Directory -Force -Path $StateRoot
+  switch ($Mode) {
+    "Status" {
+      if (Test-WinUHidDevice) {
+        Write-Phase "Verify" "device reachable"
+        $result = "OK"
+      } else {
+        Write-Phase "Verify" "device not accessible"
+        $result = "WARNING: WinUHid device not accessible"
+      }
+    }
+    "InstallElevated" {
+      if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        throw "Administrator rights are required"
+      }
+      $inf = Join-Path $PackageDir "WinUHidDriver.inf"
+      $dll = Join-Path $PackageDir "WinUHidDriver.dll"
+      $cat = Join-Path $PackageDir "WinUHidDriver.cat"
+      foreach ($f in @($inf, $dll, $cat)) {
+        if (-not (Test-Path -LiteralPath $f)) { throw "Missing driver package file: $f" }
+      }
+      $cer = Join-Path (Split-Path -Parent $PackageDir) "WinUHidPublisher.cer"
+      if (-not (Test-Path -LiteralPath $cer)) {
+        $cer = Join-Path $PackageDir "WinUHidPublisher.cer"
+      }
+
+      Write-Phase "Prepare" "install publisher cert + deploy dll"
+      Install-PublisherCert $cer
+      Deploy-UserDll
+
+      $pnputil = Join-Path $env:SystemRoot "System32\pnputil.exe"
+      if (-not (Test-Path -LiteralPath $pnputil)) {
+        throw "pnputil.exe not found"
+      }
+
+      # Phase 1: stage driver package into driver store (no device bind yet)
+      Invoke-PnputilPhase -PnputilPath $pnputil -PhaseName "StageDriver" -Arguments @('/add-driver', $inf) -AllowedExitCodes @(0, 259, 3010) | Out-Null
+
+      # Phase 2: ensure Root\WinUHid phantom root node exists (DIF_REGISTERDEVICE only)
+      Register-RootDeviceNode -InfPath $inf -PnputilPath $pnputil
+
+      # Phase 3: bind driver to node + force PnP rescan (device becomes present/started)
+      $reboot = Bind-AndPresentRootDevice -InfPath $inf -PnputilPath $pnputil
+
+      # Phase 4: verify \\.\WinUHid
+      Write-Phase "Verify" "waiting for device"
+      if (-not (Wait-WinUHidReady)) {
+        if ($reboot) {
+          # pnputil /install returned 3010: Windows itself requires a reboot.
+          Set-Content -LiteralPath $RebootFlag -Value "reboot required" -Encoding ASCII
+          Write-Phase "Verify" "not reachable; Windows restart required (exit 3010)"
+          exit 3010
+        }
+        # Device still down, but Windows did not demand a reboot. Caller should retry auto-repair.
+        Write-Phase "Verify" "not reachable after bind+scan; retry auto-repair (no reboot)"
+        exit 1
+      }
+
+      Remove-Item -LiteralPath $RebootFlag -Force -ErrorAction SilentlyContinue
+      Write-Phase "Verify" "device reachable (exit 0)"
+      exit 0
+    }
+    "Install" {
+      Deploy-UserDll
+      if ((Test-WinUHidDevice) -and (-not $Force)) {
+        Write-Phase "Verify" "already reachable (use -Force to rerun full install)"
+        $result = "OK"
+        break
+      }
+      if ($Force -and (Test-WinUHidDevice)) {
+        Write-Phase "Install" "force reinstall requested"
+      }
+      $code = Invoke-ElevatedInstall
+      Start-Sleep -Seconds 1
+      if (Test-WinUHidDevice) {
+        Remove-Item -LiteralPath $RebootFlag -Force -ErrorAction SilentlyContinue
+        Write-Phase "Verify" "reachable after elevated install"
+        $result = "OK"
+      } elseif ($code -eq 3010 -or (Test-Path -LiteralPath $RebootFlag)) {
+        Write-Phase "Verify" "restart required"
+        $result = "Driver installed; Windows restart required"
+      } else {
+        Write-Phase "Verify" "not reachable after elevated install"
+        $result = "WARNING: WinUHid driver installed but device not accessible yet"
+      }
+    }
+  }
+} catch {
+  $msg = $_.Exception.Message
+  Write-Phase "Error" $msg
+  $result = "WARNING: $msg"
+  if ($Mode -eq "InstallElevated") { exit 1 }
+}
+
+Write-Output "Result: $result"
+if ($result -like "WARNING:*") { exit 1 }
+if ($result -like "*restart required*") { exit 3010 }
+exit 0

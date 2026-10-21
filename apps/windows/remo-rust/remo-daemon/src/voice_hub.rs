@@ -236,6 +236,60 @@ fn choose_chord(
     (label, configured.to_vec())
 }
 
+fn duplicates_wechat_voice_on_paste(file_name: &str) -> bool {
+    let name = file_name
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or(file_name)
+        .to_ascii_lowercase();
+    matches!(name.as_str(), "wxwork.exe" | "wecom.exe")
+}
+
+#[cfg(windows)]
+fn wecom_is_foreground() -> bool {
+    duplicates_wechat_voice_on_paste(&foreground_executable_name())
+}
+
+#[cfg(not(windows))]
+fn wecom_is_foreground() -> bool {
+    false
+}
+
+#[cfg(windows)]
+fn foreground_executable_name() -> String {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId,
+    };
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() {
+            return String::new();
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid == 0 {
+            return String::new();
+        }
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if process.is_null() {
+            return String::new();
+        }
+        let mut buffer = [0u16; 520];
+        let mut length = buffer.len() as u32;
+        let ok = QueryFullProcessImageNameW(process, 0, buffer.as_mut_ptr(), &mut length);
+        CloseHandle(process);
+        if ok == 0 {
+            return String::new();
+        }
+        let end = (length as usize).min(buffer.len());
+        String::from_utf16_lossy(&buffer[..end])
+    }
+}
+
 fn foreground_ime_name() -> String {
     #[cfg(windows)]
     {
@@ -451,6 +505,11 @@ fn press_wechat_scan(vks: &[u16]) -> bool {
 }
 
 fn release_wechat_scan(vks: &[u16]) {
+    // WeCom already shows the live sentence. WeType then injects Ctrl+V
+    // with the same text. Arm the swallow before the hook comes back.
+    if wecom_is_foreground() {
+        crate::f5_guard::arm_swallow_injected_paste(4_000);
+    }
     crate::f5_guard::suspend();
     let keys: Vec<u16> = vks.iter().rev().copied().collect();
     for (index, vk) in keys.iter().enumerate() {
@@ -667,7 +726,7 @@ fn key_thread(
 
 #[cfg(test)]
 mod tests {
-    use super::choose_chord;
+    use super::{choose_chord, duplicates_wechat_voice_on_paste};
 
     #[test]
     fn bage_keeps_left_alt_while_wechat_is_the_keyboard() {
@@ -681,6 +740,16 @@ mod tests {
         let (label, keys) = choose_chord("豆包输入法 doubao", &[0xA5], "ralt", "qianwen_ralt");
         assert_eq!(label, "rctrl");
         assert_eq!(keys, vec![0xA3]);
+    }
+
+    #[test]
+    fn wecom_is_the_only_host_whose_second_paste_is_swallowed() {
+        assert!(duplicates_wechat_voice_on_paste(
+            r"C:\Program Files\WXWork\WXWork.exe"
+        ));
+        assert!(duplicates_wechat_voice_on_paste("WeCom.exe"));
+        assert!(!duplicates_wechat_voice_on_paste("Weixin.exe"));
+        assert!(!duplicates_wechat_voice_on_paste("notepad.exe"));
     }
 
     #[test]

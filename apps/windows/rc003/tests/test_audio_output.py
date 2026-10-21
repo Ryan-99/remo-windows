@@ -108,6 +108,20 @@ class CableEndpointMatchingTests(unittest.TestCase):
         # closes the parenthesis is not a real host-API decoration.
         self.assertFalse(audio_output.is_cable_input_endpoint("CABLE Input (unterminated"))
 
+    def test_localized_windows_render_name_matches_only_vb_cable(self):
+        self.assertTrue(
+            audio_output.is_cable_input_endpoint("扬声器 (VB-Audio Virtual Cable)")
+        )
+        self.assertTrue(
+            audio_output.is_cable_input_endpoint("Speakers (VB-Audio Virtual Cable)")
+        )
+        self.assertFalse(
+            audio_output.is_cable_input_endpoint("扬声器 (Realtek(R) Audio)")
+        )
+        self.assertFalse(
+            audio_output.is_cable_input_endpoint("CABLE In 16 Ch (VB-Audio Virtual Cable)")
+        )
+
 
 class EnumerateEndpointsWithoutSounddeviceTests(unittest.TestCase):
     """Both enumerate_output_endpoints() and enumerate_input_endpoints() must
