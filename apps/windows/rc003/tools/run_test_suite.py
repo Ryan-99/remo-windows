@@ -213,7 +213,11 @@ def run_group(label: str, modules: tuple[str, ...]) -> int:
                 stderr=subprocess.STDOUT,
                 close_fds=True,
             )
-            deadline = time.monotonic() + 180.0
+            # Qt/QML tests launch real offscreen windows and diagnostics
+            # workers. A single pass can outlast the default group budget
+            # without being stuck.
+            group_budget = 360.0 if label == "qt-qml" else 180.0
+            deadline = time.monotonic() + group_budget
             success_seen_at: float | None = None
             while True:
                 return_code = process.poll()
@@ -250,7 +254,7 @@ def run_group(label: str, modules: tuple[str, ...]) -> int:
                         process.kill()
                         process.wait(timeout=10)
                     print(
-                        f"test group {label!r} exceeded its 180-second timeout",
+                        f"test group {label!r} exceeded its {int(group_budget)}-second timeout",
                         file=sys.stderr,
                     )
                     return 1

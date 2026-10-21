@@ -1311,8 +1311,15 @@ class RunSettingsWindowShutdownCoverageTests(unittest.TestCase):
             def fromLocalFile(path):
                 return path
 
+        class _FakeTrayIcon:
+            @staticmethod
+            def isSystemTrayAvailable():
+                return False
+
         fake_classes = dict(real_classes)
         fake_classes["QGuiApplication"] = _FakeApp
+        fake_classes["QApplication"] = _FakeApp
+        fake_classes["QSystemTrayIcon"] = _FakeTrayIcon
         fake_classes["QQmlApplicationEngine"] = _FakeEngine
         fake_classes["QQuickStyle"] = _FakeQQuickStyle
         fake_classes["QUrl"] = _FakeQUrl
