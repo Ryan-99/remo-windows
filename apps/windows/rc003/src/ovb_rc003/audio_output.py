@@ -185,7 +185,7 @@ def _matches_cable_endpoint(name: str, canonical: str) -> bool:
     return name.startswith(decorated_prefix) and name.endswith(")")
 
 
-def _is_localized_vb_cable_render(name: str) -> bool:
+def _is_localized_virtual_render(name: str) -> bool:
     """True for the main VB-CABLE playback endpoint after Windows localizes it."""
 
     name = name.strip()
@@ -205,7 +205,7 @@ def is_cable_input_endpoint(name: str) -> bool:
     name Windows substitutes on non-English systems.
     """
 
-    return _matches_cable_endpoint(name, CABLE_INPUT_NAME) or _is_localized_vb_cable_render(name)
+    return _matches_cable_endpoint(name, CABLE_INPUT_NAME) or _is_localized_virtual_render(name)
 
 
 def is_cable_output_endpoint(name: str) -> bool:
