@@ -451,7 +451,10 @@ class SettingsControllerTests(unittest.TestCase):
         publisher.publish(
             state="connected", detail="RC003 已连接", attempt=1
         )
-        controller.refreshBridgeStatus()
+        with mock.patch.object(
+            qt_settings_app.daemon_control, "is_running", return_value=True
+        ):
+            controller.refreshBridgeStatus()
         self.assertEqual(controller.bridgeRuntimeState, "connected")
         self.assertEqual(controller.bridgeRuntimeStatusText, "RC003 已连接")
         self.assertFalse(controller.bridgeAudioActive)
@@ -466,7 +469,10 @@ class SettingsControllerTests(unittest.TestCase):
             detail="RC003 已连接，正在接收语音",
             audio_active=True,
         )
-        controller.refreshBridgeStatus()
+        with mock.patch.object(
+            qt_settings_app.daemon_control, "is_running", return_value=True
+        ):
+            controller.refreshBridgeStatus()
         self.assertTrue(controller.bridgeAudioActive)
         self.assertIn("正在接收语音", controller.bridgeRuntimeStatusText)
 
@@ -745,6 +751,8 @@ class SettingsControllerTests(unittest.TestCase):
         )
         publisher.publish(state="connected", detail="RC003 已连接")
         with mock.patch.object(
+            qt_settings_app.daemon_control, "is_running", return_value=True
+        ), mock.patch.object(
             qt_settings_app.raw_input_windows,
             "enumerate_matching_device_paths",
             side_effect=RuntimeError("Raw Input unavailable"),
@@ -753,7 +761,10 @@ class SettingsControllerTests(unittest.TestCase):
         self.assertTrue(controller.keyDetectionActive)
         self.assertIn("桥接", controller.keyDetectionText)
         publisher.publish(state="connected", button_id="power", button_state="down")
-        controller.refreshBridgeStatus()
+        with mock.patch.object(
+            qt_settings_app.daemon_control, "is_running", return_value=True
+        ):
+            controller.refreshBridgeStatus()
         self.assertFalse(controller.keyDetectionActive)
         self.assertEqual(controller.selectedButtonId, "power")
         self.assertEqual(model.selected_button_id(), "power")
