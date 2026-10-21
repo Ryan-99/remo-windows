@@ -96,6 +96,7 @@ from __future__ import annotations
 
 import atexit
 import ctypes
+import dataclasses
 import gc
 import logging
 import sys
@@ -1420,8 +1421,11 @@ def _load_qt_classes() -> dict:
             self._set_takeover_running(running)
             refreshed = bridge_status.read_bridge_status(self._config_root)
             if not running:
-                refreshed.state = "stopped"
-                refreshed.detail = "按键接管已关闭"
+                refreshed = dataclasses.replace(
+                    refreshed,
+                    state="stopped",
+                    detail="按键接管已关闭",
+                )
             # Keep the live debug panel responsive even when the bridge only
             # updates diagnostic fields and no new button sequence arrives.
             if refreshed.updated_at != self._bridge_runtime_status.updated_at:

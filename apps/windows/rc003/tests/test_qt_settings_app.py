@@ -2039,6 +2039,9 @@ QQuickStyle.setStyle("FluentWinUI3")
 app = QGuiApplication.instance() or QGuiApplication([])
 model = ButtonMappingModel()
 controller = SettingsController(model)
+if not controller._endpoint_options:
+    controller._endpoint_options = ["CABLE Input (VB-Audio Virtual Cable)"]
+    controller._selected_endpoint_index = 0
 diagnostics_controller = DiagnosticsController(controller, m.config.config_root())
 qmlRegisterSingletonInstance(SettingsController, "OvbRc003Settings", 1, 0, "SettingsController", controller)
 qmlRegisterSingletonInstance(ButtonMappingModel, "OvbRc003Settings", 1, 0, "ButtonMappingModel", model)
